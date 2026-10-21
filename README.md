@@ -4,6 +4,10 @@
 
 ![PhoenixBlackNest nesting 54 parts in roll mode](docs/screenshot.png)
 
+*A real production run: 14 references, 263 copies, one 5.12 m roll at 64.1 %.*
+
+![263 copies nested into a 5.12 m roll](docs/run.png)
+
 - Website: [docs/index.html](docs/index.html)
 - License: **AGPL-3.0** — see [LICENSE](LICENSE)
 

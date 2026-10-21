@@ -150,6 +150,15 @@
   @media(max-width:620px){.cards{grid-template-columns:1fr}}
   @media (prefers-reduced-motion:reduce){.card{transition:none}.card:hover{transform:none}}
 
+  /* run */
+  .run-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line-2);border:1px solid var(--line-2);border-radius:12px;overflow:hidden;margin:28px 0 0}
+  .run-stats>div{background:#0a1119;padding:13px 15px}
+  .run-stats dt{font-family:var(--mono);font-size:.61rem;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+  .run-stats dd{margin:4px 0 0;font-family:var(--mono);font-size:1rem;color:var(--text);letter-spacing:-.01em}
+  .run{align-items:start}
+  .run-shot{align-self:start}
+  @media(max-width:560px){.run-stats{grid-template-columns:1fr 1fr}}
+
   /* engine */
   .engine-img{border:1px solid var(--line);border-radius:14px;padding:7px;background:#0a1018;box-shadow:0 30px 80px -50px #000}
   .engine-img img{display:block;width:100%;height:auto;border-radius:8px}
@@ -370,6 +379,31 @@
           <p>DXF with closed polylines on a <code>CutContour</code> layer (<code>$INSUNITS=4</code>) and imposition PDF with cut marks and bleed.</p>
         </article>
       </div>
+    </div>
+  </section>
+
+  <section id="run" class="rise">
+    <div class="wrap two run">
+      <div>
+        <p class="eyebrow">A real production run</p>
+        <h2>Fourteen references. 263 copies. One 5.12 m roll.</h2>
+        <p class="sub">Mechanical DXF parts, vector PDFs, pre-press artwork and 600 dpi raster scans nested together in roll mode on a 1000 mm web. Every copy placed, every reference cut-ready, no manual touch-up in between.</p>
+        <dl class="run-stats">
+          <div><dt>References</dt><dd>14</dd></div>
+          <div><dt>Copies</dt><dd>263 / 263</dd></div>
+          <div><dt>Roll length</dt><dd>5.12 m</dd></div>
+          <div><dt>Utilization</dt><dd>64.1 %</dd></div>
+          <div><dt>Clearance</dt><dd>1.5 mm</dd></div>
+          <div><dt>Raster intake</dt><dd>600 dpi</dd></div>
+        </dl>
+      </div>
+      <figure class="shot run-shot">
+        <span class="live">Real run</span>
+        <picture>
+          <source srcset="run.webp" type="image/webp">
+          <img src="run.png" width="960" height="1357" alt="PhoenixBlackNest window with 14 imported references on the left and 263 nested copies on a 5.12 metre roll at 64.1% utilization.">
+        </picture>
+      </figure>
     </div>
   </section>
 
