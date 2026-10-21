@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PhoenixBlackNest — Anidado true-shape en GPU</title>
+<meta name="description" content="Anidado true-shape en GPU para corte industrial: DXF, DWG, SVG, PDF y rasters. Sin solapes, con separación exacta y exportación DXF 1:1 mm + PDF de imposición.">
+<meta name="theme-color" content="#070a10">
+<style>
+  :root{
+    --bg:#070a10;
+    --bg-soft:#0b1119;
+    --panel:#0d141f;
+    --line:#1d2836;
+    --line-soft:#151f2b;
+    --text:#e8eef7;
+    --muted:#93a3b8;
+    --accent:#2ee6c5;
+    --accent-dim:#1a8f7d;
+    --warn:#ffb02e;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --max:1160px;
+    --r:14px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{
+    margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+    line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  }
+  a{color:inherit}
+  .skip{position:absolute;left:-9999px;top:0;padding:.6rem 1rem;background:var(--accent);color:#04120f;z-index:100}
+  .skip:focus{left:1rem;top:1rem}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+
+  /* barra superior */
+  header.top{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
+    background:color-mix(in srgb,var(--bg) 82%,transparent);border-bottom:1px solid var(--line-soft)}
+  .top-in{display:flex;align-items:center;gap:18px;height:64px}
+  .mark{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:650;letter-spacing:-.01em}
+  .mark svg{display:block}
+  .mark span small{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;color:var(--muted);font-weight:400;text-transform:uppercase}
+  nav.main{margin-left:auto;display:flex;gap:22px;font-size:.9rem}
+  nav.main a{color:var(--muted);text-decoration:none}
+  nav.main a:hover{color:var(--text)}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:.55rem .95rem;border-radius:10px;
+    border:1px solid var(--line);text-decoration:none;font-size:.88rem;font-weight:550;color:var(--text);
+    transition:border-color .18s ease,background .18s ease,transform .18s ease}
+  .btn:hover{border-color:#2b3b4e;background:#0f1724}
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{background:var(--accent);color:#04120f;border-color:var(--accent)}
+  .btn.primary:hover{background:#54f0d4;border-color:#54f0d4}
+  @media(max-width:860px){nav.main{display:none}}
+
+  /* hero */
+  .hero{position:relative;overflow:hidden;border-bottom:1px solid var(--line-soft)}
+  .hero::before{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:
+      radial-gradient(900px 420px at 78% -10%,rgba(46,230,197,.10),transparent 70%),
+      linear-gradient(180deg,transparent,var(--bg));
+  }
+  .hero::after{
+    content:"";position:absolute;inset:0;pointer-events:none;opacity:.35;
+    background-image:linear-gradient(var(--line-soft) 1px,transparent 1px),linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);
+    background-size:56px 56px;
+    mask-image:radial-gradient(70% 60% at 50% 0%,#000 40%,transparent 100%);
+  }
+  .hero-in{position:relative;display:grid;grid-template-columns:1.05fr .95fr;gap:56px;padding:74px 0 64px;align-items:center}
+  h1{font-size:clamp(2.3rem,4.4vw,3.6rem);line-height:1.06;letter-spacing:-.028em;margin:.5rem 0 0;font-weight:680}
+  h1 em{font-style:normal;color:var(--accent)}
+  .lead{margin:18px 0 0;color:var(--muted);font-size:1.06rem;max-width:52ch}
+  .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
+  .metaline{display:flex;flex-wrap:wrap;gap:18px;margin-top:26px;font-family:var(--mono);font-size:.76rem;color:#6f8199}
+  .metaline span{display:flex;align-items:center;gap:7px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(46,230,197,.12)}
+
+  .sheet-card{position:relative;border:1px solid var(--line);background:linear-gradient(180deg,#0c1420,#080d14);border-radius:18px;padding:18px;
+    box-shadow:0 30px 80px -40px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.03)}
+  .sheet-top{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:.7rem;color:#7d8fa6;margin-bottom:12px;letter-spacing:.08em}
+  .sheet-top b{color:var(--accent);font-weight:500}
+  .sheet-card svg{display:block;width:100%;height:auto;border-radius:10px;background:#060a0f}
+  .sheet-foot{display:flex;justify-content:space-between;gap:12px;margin-top:12px;font-family:var(--mono);font-size:.68rem;color:#64768c}
+  @media(max-width:900px){.hero-in{grid-template-columns:1fr;gap:36px;padding:52px 0 44px}}
+
+  /* cifras */
+  .stats{border-bottom:1px solid var(--line-soft);background:var(--bg-soft)}
+  .stats-in{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line-soft)}
+  .stat{background:var(--bg-soft);padding:26px 22px}
+  .stat .n{font-family:var(--mono);font-size:clamp(1.5rem,2.4vw,2rem);letter-spacing:-.02em;color:var(--text)}
+  .stat .n small{font-size:.6em;color:var(--accent);margin-left:2px}
+  .stat .l{font-size:.78rem;color:var(--muted);margin-top:4px}
+  @media(max-width:820px){.stats-in{grid-template-columns:repeat(2,1fr)}}
+
+  section{padding:76px 0;border-bottom:1px solid var(--line-soft)}
+  h2{font-size:clamp(1.5rem,2.5vw,2rem);letter-spacing:-.02em;margin:.4rem 0 0;font-weight:640}
+  .sub{color:var(--muted);max-width:62ch;margin:12px 0 0}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:center}
+  @media(max-width:900px){.two{grid-template-columns:1fr;gap:28px}}
+
+  .compare{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .cmp{border:1px solid var(--line);border-radius:var(--r);padding:14px;background:var(--panel)}
+  .cmp h3{margin:0 0 10px;font-size:.74rem;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:500}
+  .cmp.bad h3{color:#ff8f6b}
+  .cmp.good h3{color:var(--accent)}
+  .cmp svg{width:100%;height:auto;display:block}
+  .cmp p{margin:10px 0 0;font-size:.8rem;color:var(--muted)}
+
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:34px}
+  .card{border:1px solid var(--line);background:var(--panel);border-radius:var(--r);padding:22px;transition:border-color .2s ease,transform .2s ease}
+  .card:hover{border-color:#2a3a4d;transform:translateY(-2px)}
+  @media (prefers-reduced-motion:reduce){.card,.btn{transition:none}.card:hover{transform:none}}
+  .card .ic{width:30px;height:30px;color:var(--accent);margin-bottom:12px}
+  .card h3{margin:0 0 6px;font-size:1rem;font-weight:620;letter-spacing:-.01em}
+  .card p{margin:0;color:var(--muted);font-size:.88rem}
+  @media(max-width:900px){.cards{grid-template-columns:1fr 1fr}}
+  @media(max-width:620px){.cards{grid-template-columns:1fr}}
+
+  .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:36px;counter-reset:step}
+  .step{border-top:1px solid var(--line);padding-top:16px;position:relative}
+  .step::before{counter-increment:step;content:"0" counter(step);font-family:var(--mono);font-size:.7rem;color:var(--accent);letter-spacing:.1em}
+  .step h3{margin:8px 0 6px;font-size:.95rem;font-weight:600}
+  .step p{margin:0;font-size:.82rem;color:var(--muted)}
+  @media(max-width:900px){.flow{grid-template-columns:1fr 1fr;gap:20px}}
+
+  .use{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:start}
+  @media(max-width:900px){.use{grid-template-columns:1fr}}
+  ol.steps{margin:26px 0 0;padding:0;list-style:none;display:grid;gap:16px}
+  ol.steps li{display:grid;grid-template-columns:30px 1fr;gap:14px}
+  ol.steps .idx{width:26px;height:26px;border-radius:8px;border:1px solid #234;display:grid;place-items:center;font-family:var(--mono);font-size:.74rem;color:var(--accent)}
+  ol.steps b{display:block;font-weight:600;font-size:.95rem}
+  ol.steps span{color:var(--muted);font-size:.88rem}
+  pre{margin:14px 0 0;padding:14px 16px;background:#080d14;border:1px solid var(--line);border-radius:10px;overflow:auto;
+    font-family:var(--mono);font-size:.8rem;color:#cfe0f2;line-height:1.55}
+  pre .c{color:#5d7288}
+  code{font-family:var(--mono);font-size:.86em;background:#0e1622;border:1px solid var(--line-soft);padding:.1em .35em;border-radius:5px}
+
+  table{width:100%;border-collapse:collapse;margin-top:26px;font-size:.88rem}
+  th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500}
+  td:first-child{color:var(--muted);white-space:nowrap}
+  td.num{font-family:var(--mono);color:var(--text)}
+
+  .lic{border:1px solid var(--line);border-left:3px solid var(--warn);background:#0c1118;border-radius:12px;padding:22px 24px;margin-top:28px}
+  .lic p{margin:0;color:var(--muted);font-size:.9rem}
+  .lic p+p{margin-top:10px}
+  .lic strong{color:var(--text);font-weight:600}
+
+  footer{padding:38px 0 54px;color:#5f7189;font-size:.8rem}
+  .foot-in{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
+  .foot-in a{color:#8ea1b8;text-decoration:none}
+  .foot-in a:hover{color:var(--text)}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Saltar al contenido</a>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="mark" href="#main" aria-label="PhoenixBlackNest, inicio">
+      <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="29" height="29" rx="7" stroke="#2ee6c5" stroke-opacity=".55"/>
+        <path d="M9 23V9h7.2c2.7 0 4.3 1.5 4.3 3.9 0 2.4-1.6 3.9-4.3 3.9H12.4V23H9Z" fill="#2ee6c5"/>
+        <circle cx="22.5" cy="22.5" r="3" stroke="#ffb02e"/>
+      </svg>
+      <span>PhoenixBlackNest<small>GPU nesting core</small></span>
+    </a>
+    <nav class="main" aria-label="Secciones">
+      <a href="#problema">Problema</a>
+      <a href="#capacidades">Capacidades</a>
+      <a href="#flujo">Cómo funciona</a>
+      <a href="#uso">Uso</a>
+      <a href="#licencia">Licencia</a>
+    </nav>
+    <a class="btn" href="https://github.com/PhoenixWally/PhoenixBlackNest" rel="noopener">GitHub</a>
+  </div>
+</header>
+
+<main id="main">
+  <div class="hero">
+    <div class="wrap hero-in">
+      <div>
+        <p class="eyebrow">WebGL2 · True-Shape · Windows x64</p>
+        <h1>Anidado industrial <em>sin solapes</em>, a velocidad de GPU.</h1>
+        <p class="lead">PhoenixBlackNest coloca miles de contornos reales —con sus agujeros e islas— dentro de hojas o bobina, respetando una separación exacta en milímetros y exportando DXF 1:1 y PDF de imposición listos para producción.</p>
+        <div class="cta">
+          <a class="btn primary" href="#uso">Cómo usarlo</a>
+          <a class="btn" href="https://github.com/PhoenixWally/PhoenixBlackNest" rel="noopener">Ver código</a>
+        </div>
+        <div class="metaline">
+          <span><i class="dot"></i>0.000000 mm² de solape</span>
+          <span><i class="dot"></i>4.2 s por generación</span>
+          <span><i class="dot"></i>AGPL-3.0</span>
+        </div>
+      </div>
+
+      <div class="sheet-card" aria-hidden="true">
+        <div class="sheet-top"><span>HOJA 1000 × 2000 mm</span><b>72.2 %</b></div>
+        <svg viewBox="0 0 400 300" role="img" aria-label="Nido de piezas sobre una hoja">
+          <defs>
+            <pattern id="g" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M20 0H0V20" fill="none" stroke="#12202e" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <rect width="400" height="300" fill="url(#g)"/>
+          <rect x="10" y="10" width="380" height="280" fill="none" stroke="#1c3040" stroke-dasharray="4 5"/>
+          <g stroke="#2ee6c5" stroke-width="1.4" fill="rgba(46,230,197,.07)">
+            <rect x="24" y="26" width="72" height="52" rx="4"/>
+            <rect x="104" y="26" width="52" height="52" rx="26"/>
+            <rect x="164" y="20" width="46" height="64"/>
+            <path d="M220 26l26 15v30l-26 15-26-15V41z"/>
+            <path d="M264 30h58l-29 50z"/>
+            <rect x="330" y="24" width="44" height="58" rx="6"/>
+            <rect x="24" y="92" width="54" height="72"/>
+            <circle cx="112" cy="128" r="26"/>
+            <circle cx="112" cy="128" r="10" fill="#060a0f" stroke="#2ee6c5"/>
+            <path d="M152 92h40v30h30v40h-70z"/>
+            <path d="M232 92l34 12-8 34-30 8-10-30z"/>
+            <rect x="288" y="92" width="86" height="42" rx="4"/>
+            <rect x="288" y="146" width="86" height="42" rx="4"/>
+            <path d="M24 180h60v60H24z"/>
+            <path d="M24 205h60" stroke-opacity=".45"/>
+            <circle cx="118" cy="212" r="30"/>
+            <path d="M156 180h52v52h-52z"/>
+            <p>
+              <rect x="216" y="186" width="60" height="46" rx="3"/>
+            </p>
+            <path d="M286 180h30v58h30v-58" fill="none"/>
+            <path d="M356 180h18v66h-18z"/>
+            <rect x="24" y="248" width="150" height="26" rx="3"/>
+            <rect x="182" y="248" width="94" height="26" rx="3"/>
+            <rect x="284" y="248" width="90" height="26" rx="3"/>
+          </g>
+          <g stroke="#ffb02e" stroke-width="1" fill="none" opacity=".9">
+            <circle cx="200" cy="14" r="3"/>
+          </g>
+        </svg>
+        <div class="sheet-foot"><span>spacing 3.0000 mm</span><span>0 overlaps</span><span>gen 25/25</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="wrap stats-in">
+      <div class="stat"><div class="n">72.2<small>%</small></div><div class="l">Utilización en bobina real</div></div>
+      <div class="stat"><div class="n">0.000000<small>mm²</small></div><div class="l">Solape de material verificado</div></div>
+      <div class="stat"><div class="n">3.78<small>ms</small></div><div class="l">Coste por lote evaluado en GPU</div></div>
+      <div class="stat"><div class="n">4.2<small>s/gen</small></div><div class="l">Ritmo de búsqueda (hojas fijas)</div></div>
+    </div>
+  </div>
+
+  <section id="problema">
+    <div class="wrap two">
+      <div>
+        <p class="eyebrow">El problema</p>
+        <h2>El CAD anida cajas. Tú pagas el material que sobra.</h2>
+        <p class="sub">Colocar por bounding box deja huecos imposibles de recuperar: dos formas en L o un anillo del tamaño justo se rechazan porque sus cajas se cruzan. Y comprobar que dos contornos no se tocan es una operación geométrica que ningún bucle secuencial puede repetir cientos de miles de veces sin morir.</p>
+        <p class="sub">El resultado típico: entre un 30 % y un 50 % de la lámina perdida, retoques manuales y riesgo de piezas que se tocan en producción.</p>
+      </div>
+      <div class="compare">
+        <div class="cmp bad">
+          <h3>Bounding box</h3>
+          <svg viewBox="0 0 200 150" aria-hidden="true">
+            <rect x="10" y="12" width="78" height="60" fill="rgba(255,143,107,.10)" stroke="#ff8f6b" stroke-dasharray="4 4"/>
+            <rect x="70" y="52" width="78" height="60" fill="rgba(255,143,107,.10)" stroke="#ff8f6b" stroke-dasharray="4 4"/>
+            <path d="M20 24h58v20H20z" fill="#ff8f6b" opacity=".5"/>
+            <path d="M80 84h58v16H80z" fill="#ff8f6b" opacity=".5"/>
+            <text x="106" y="130" fill="#7e8fa4" font-family="monospace" font-size="9">colisión de cajas</text>
+          </svg>
+          <p>Se descarta una colocación válida y se desperdicia el hueco.</p>
+        </div>
+        <div class="cmp good">
+          <h3>True-shape</h3>
+          <svg viewBox="0 0 200 150" aria-hidden="true">
+            <path d="M12 18h58v20H12z" fill="rgba(46,230,197,.16)" stroke="#2ee6c5"/>
+            <path d="M76 52h58v16H76z" fill="rgba(46,230,197,.16)" stroke="#2ee6c5"/>
+            <path d="M60 22h12v60H60z" fill="none" stroke="#2ee6c5" stroke-dasharray="3 4"/>
+            <text x="24" y="130" fill="#7e8fa4" font-family="monospace" font-size="9">piezas encajadas</text>
+          </svg>
+          <p>El contorno real ocupa el hueco y mantiene la separación exacta.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="capacidades">
+    <div class="wrap">
+      <p class="eyebrow">Qué hace</p>
+      <h2>Un motor, de la importación al archivo de corte.</h2>
+      <p class="sub">Todo el pipeline trabaja en milímetros reales. Nada se simula: la geometría que se evalúa es la que se exporta.</p>
+
+      <div class="cards">
+        <div class="card">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/><path d="M8 9h8v6H8z"/></svg>
+          <h3>Ingesta true-shape</h3>
+          <p>DXF con cosido topológico (LINE/ARC/SPLINE/LWPOLYLINE), DWG vía ODA, SVG con transformaciones y curvas, PDF vectorial y rasters con detección de silueta.</p>
+        </div>
+        <div class="card">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.4"/></svg>
+          <h3>Agujeros e islas</h3>
+          <p>Jerarquía de contornos real: un anillo ocupa su corona, no su caja. Las islas interiores se detectan y se pueden anidar dentro.</p>
+        </div>
+        <div class="card">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h4M7 13h7M13 9h4"/></svg>
+          <h3>Evaluación en GPU</h3>
+          <p>Ping-pong 2048×1024, hasta 8 piezas por pasada, 96 muestras por pieza y poda en el shader de los píxeles que no pueden ganar.</p>
+        </div>
+        <div class="card">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 18l5-9 4 5 3-6 4 10"/><path d="M4 18h16"/></svg>
+          <h3>Refinado al contacto</h3>
+          <p>Cada candidato se desliza hasta tocar la geometría existente: separación exacta, sin aproximaciones por píxel.</p>
+        </div>
+        <div class="card">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6 4h12v16H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>
+          <h3>Hojas fijas o bobina</h3>
+          <p>Reparto en varias hojas o rollo continuo que crece con la rejilla de ocupación, sin redondear el largo a múltiplos.</p>
+        </div>
+        <div class="card">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>
+          <h3>Salida de producción</h3>
+          <p>DXF con polilíneas cerradas en capa <code>CutContour</code> (<code>$INSUNITS=4</code>) y PDF de imposición con marcas y sangrado.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="flujo">
+    <div class="wrap">
+      <p class="eyebrow">Cómo funciona</p>
+      <h2>Cinco pasos, sin intervención manual.</h2>
+      <div class="flow">
+        <div class="step"><h3>Contornos</h3><p>Cada archivo se convierte a polígonos en milímetros, con agujeros normalizados a su caja.</p></div>
+        <div class="step"><h3>Rasterizado</h3><p>La hoja y las piezas se dibujan en texturas float; la profundidad codifica el hueco libre.</p></div>
+        <div class="step"><h3>Evaluación</h3><p>El shader puntúa miles de posiciones por pieza y ángulo, con muestras de perímetro y de interior.</p></div>
+        <div class="step"><h3>Búsqueda</h3><p>Un genético elige orden, rotación (1°) y posición; la ventana fina afina alrededor de los mejores.</p></div>
+        <div class="step"><h3>Empaquetado</h3><p>Se compacta, se verifica el <code>spacing</code> y se exporta a DXF y PDF.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="uso">
+    <div class="wrap">
+      <p class="eyebrow">Uso</p>
+      <h2>Arrancar, importar, exportar.</h2>
+      <div class="use">
+        <div>
+          <ol class="steps">
+            <li><span class="idx">1</span><span><b>Importa las piezas</b><span>Arrastra DXF, DWG, SVG, PDF o imágenes. La app muestra vértices y agujeros detectados antes de anidar.</span></span></li>
+            <li><span class="idx">2</span><span><b>Define la tirada</b><span>Hoja fija o bobina, tamaño, <code>spacing</code>, sangrado, copias por referencia y paso de rotación.</span></span></li>
+            <li><span class="idx">3</span><span><b>Anida y exporta</b><span>El motor corre en un worker GPU oculto y reporta cada generación. Al terminar, exporta DXF 1:1 y PDF de imposición.</span></span></li>
+          </ol>
+          <p class="sub" style="margin-top:22px">La versión portable no necesita instalar nada: Electron y Python 3.13 van incluidos. Para ejecutar desde el código fuente necesitas Node.js 18+ y Python 3.13 con las dependencias del README.</p>
+        </div>
+        <div>
+          <pre><span class="c">:: versión portable</span>
+run.bat
+
+<span class="c">:: desde código fuente</span>
+npm install
+python -m pip install shapely ezdxf reportlab ^
+  pillow numpy opencv-python-headless pymupdf pypdf
+npm start</pre>
+          <table>
+            <tr><th>Variable</th><th>Efecto</th></tr>
+            <tr><td class="num">PHOENIXBLACKNEST_PYTHON</td><td>Intérprete Python a usar</td></tr>
+            <tr><td class="num">NEST_SAMPLES</td><td>Carpeta de muestras para pruebas</td></tr>
+            <tr><td class="num">MODE / GEN</td><td>Modo y generaciones de auditoría</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="licencia">
+    <div class="wrap">
+      <p class="eyebrow">Licencia</p>
+      <h2>AGPL-3.0, con todo lo que implica.</h2>
+      <div class="lic">
+        <p><strong>PhoenixBlackNest se distribuye bajo GNU Affero GPL v3.0.</strong> Puedes usarlo, estudiarlo, modificarlo y redistribuirlo; si distribuyes el programa o un servicio basado en él, debes ofrecer también el código fuente bajo la misma licencia.</p>
+        <p>La razón es <strong>PyMuPDF</strong>, la librería que extrae los trazados de los PDF, publicada bajo AGPL por Artifex. Si necesitas una distribución cerrada, sustitúyela por una alternativa permisiva o adquiere una licencia comercial.</p>
+        <p>Resto de componentes: Electron/Chromium (MIT/BSD), ezdxf, shapely, reportlab, Pillow, numpy, pypdf (MIT/BSD) y OpenCV (Apache-2.0). ODA File Converter es propietario y no se distribuye con el proyecto.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot-in">
+    <span>PhoenixBlackNest · anidado true-shape en GPU · 2026</span>
+    <span><a href="https://github.com/PhoenixWally/PhoenixBlackNest" rel="noopener">GitHub</a> · <a href="https://github.com/PhoenixWally/PhoenixBlackNest/blob/main/LICENSE" rel="noopener">AGPL-3.0</a></span>
+  </div>
+</footer>
+</body>
+</html>

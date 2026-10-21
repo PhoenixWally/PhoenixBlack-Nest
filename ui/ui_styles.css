@@ -1,0 +1,617 @@
+/* PhoenixBlackNest - Industrial Modern UI CSS */
+:root {
+  --bg-darker: #090d16;
+  --bg-dark: #0f172a;
+  --bg-card: #1e293b;
+  --bg-card-hover: #273549;
+  --border: #334155;
+  --border-focus: #38bdf8;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent-cyan: #06b6d4;
+  --accent-blue: #3b82f6;
+  --accent-emerald: #10b981;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+  --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 1. Header / Topbar */
+.topbar {
+  background: var(--bg-darker);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  z-index: 100;
+  flex-wrap: wrap;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-logo {
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  color: #fff;
+  font-size: 14px;
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
+}
+
+.brand-title {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.brand-badge {
+  font-size: 10px;
+  background: rgba(6, 182, 212, 0.15);
+  color: var(--accent-cyan);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  font-family: var(--font-mono);
+}
+
+/* Material configuration inline in header */
+.config-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-card);
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.config-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.config-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.config-input {
+  width: 58px;
+  background: var(--bg-darker);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  text-align: right;
+  outline: none;
+}
+
+.config-input:focus {
+  border-color: var(--accent-cyan);
+}
+
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-darker);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.mode-toggle input[type="checkbox"] {
+  accent-color: var(--accent-cyan);
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
+.mode-toggle-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-cyan);
+}
+
+/* Action buttons */
+.btn-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  outline: none;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #10b981, #34d399);
+  transform: translateY(-1px);
+}
+
+.btn-stop {
+  background: #e11d48;
+  color: #fff;
+}
+
+.btn-stop:hover:not(:disabled) {
+  background: #f43f5e;
+}
+
+.btn-secondary {
+  background: var(--bg-card);
+  color: var(--text-main);
+  border-color: var(--border);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-card-hover);
+  border-color: var(--border-focus);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* 2. Main Workspace Layout */
+.workspace {
+  display: flex;
+  flex: 1;
+  height: calc(100vh - 54px);
+  overflow: hidden;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 380px;
+  min-width: 320px;
+  max-width: 450px;
+  background: var(--bg-darker);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 50;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 10px 14px;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sidebar-badge {
+  background: var(--bg-card);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+}
+
+/* Parts list */
+.parts-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.part-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  transition: border-color 0.15s ease;
+}
+
+.part-card:hover {
+  border-color: var(--border-focus);
+}
+
+.part-thumb {
+  width: 48px;
+  height: 48px;
+  background: #0b1120;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.part-thumb svg {
+  max-width: 44px;
+  max-height: 44px;
+}
+
+.part-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.part-name {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+}
+
+.part-dims {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.part-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qty-control {
+  display: flex;
+  align-items: center;
+  background: var(--bg-darker);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.qty-btn {
+  width: 22px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qty-btn:hover {
+  background: var(--border);
+}
+
+.qty-input {
+  width: 32px;
+  height: 24px;
+  background: transparent;
+  border: none;
+  color: var(--accent-cyan);
+  text-align: center;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: bold;
+  outline: none;
+}
+
+.grain-select {
+  background: var(--bg-darker);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 3px;
+  border-radius: 4px;
+  outline: none;
+}
+
+.btn-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.btn-delete:hover {
+  color: var(--accent-rose);
+  background: rgba(244, 63, 94, 0.15);
+}
+
+/* Telemetry Dashboard in Sidebar Bottom */
+.telemetry-panel {
+  background: var(--bg-dark);
+  border-top: 1px solid var(--border);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.telemetry-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.telemetry-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.telemetry-value {
+  font-size: 15px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: #fff;
+}
+
+.telemetry-value.highlight {
+  color: var(--accent-cyan);
+}
+
+.telemetry-value.success {
+  color: var(--accent-emerald);
+}
+
+/* Progress bar */
+.progress-bar-wrap {
+  height: 6px;
+  background: var(--bg-card);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald));
+  transition: width 0.2s ease;
+}
+
+/* History list */
+.history-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-card);
+  font-size: 10px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.history-item:hover {
+  border-color: var(--accent-cyan);
+}
+
+.history-item.active {
+  border-color: var(--accent-emerald);
+  background: rgba(16, 185, 129, 0.15);
+}
+
+/* 3. CAD Viewport (Center/Right) */
+.viewport-area {
+  flex: 1;
+  position: relative;
+  background: #020617;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.viewport-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  z-index: 30;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.tool-btn {
+  width: 32px;
+  height: 32px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.tool-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--accent-cyan);
+}
+
+#svg-viewport {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+#svg-viewport:active {
+  cursor: grabbing;
+}
+
+/* Millimeter grid in SVG */
+.grid-line {
+  stroke: rgba(51, 65, 85, 0.25);
+  stroke-width: 0.5;
+}
+
+.sheet-boundary {
+  fill: rgba(30, 41, 59, 0.6);
+  stroke: #38bdf8;
+  stroke-width: 2;
+  stroke-dasharray: 6 3;
+}
+
+.sheet-title {
+  fill: #38bdf8;
+  font-size: 16px;
+  font-family: var(--font-mono);
+  font-weight: bold;
+}
+
+.roll-cut-line {
+  stroke: #f43f5e;
+  stroke-width: 2.5;
+  stroke-dasharray: 8 4;
+}
+
+.roll-cut-text {
+  fill: #f43f5e;
+  font-size: 14px;
+  font-family: var(--font-mono);
+  font-weight: bold;
+}
+
+.placed-part-poly {
+  fill: rgba(6, 182, 212, 0.4);
+  stroke: #06b6d4;
+  stroke-width: 1.2;
+  transition: fill 0.1s;
+}
+
+.placed-part-poly:hover {
+  fill: rgba(16, 185, 129, 0.6);
+  stroke: #10b981;
+}
+
+.placed-hole-poly {
+  fill: #020617;
+  stroke: #f59e0b;
+  stroke-width: 1;
+}
+
+/* Empty state */
+.empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  pointer-events: none;
+}
+
+.empty-state h3 {
+  color: #fff;
+  font-size: 16px;
+}
+
+.empty-state p {
+  font-size: 12px;
+  max-width: 300px;
+}

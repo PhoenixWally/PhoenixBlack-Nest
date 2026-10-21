@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>PhoenixBlackNest - Industrial GPU Nesting</title>
+  <link rel="stylesheet" href="./ui_styles.css">
+</head>
+<body>
+
+  <!-- 1. BARRA SUPERIOR DE CONTROL INDUSTRIAL -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">DN</div>
+      <div class="brand-title">
+        PHOENIXBLACKNEST
+        <span class="brand-badge" id="gpu-badge">GPU WebGL2</span>
+      </div>
+    </div>
+
+    <!-- Importadores de archivos -->
+    <div class="btn-group">
+      <button class="btn btn-secondary" id="btn-import-files">
+        📂 Importar Archivos
+      </button>
+      <button class="btn btn-secondary" id="btn-load-test-batch" style="border-color: var(--accent-cyan); color: var(--accent-cyan);">
+        ⚡ Lote de Prueba Industrial
+      </button>
+    </div>
+
+    <!-- Configuración de Material en mm puros -->
+    <div class="config-group">
+      <div class="config-item">
+        <span class="config-label">Ancho (mm):</span>
+        <input type="number" id="input-width" class="config-input" value="1000" min="50" step="10">
+      </div>
+      <div class="config-item">
+        <span class="config-label">Largo (mm):</span>
+        <input type="number" id="input-height" class="config-input" value="2000" min="50" step="10">
+      </div>
+      <div class="config-item">
+        <span class="config-label">Separación (mm):</span>
+        <input type="number" id="input-spacing" class="config-input" value="3.0" min="0" step="0.5">
+      </div>
+      <div class="config-item">
+        <span class="config-label">Sangrado (mm):</span>
+        <input type="number" id="input-bleed" class="config-input" value="2.0" min="0" step="0.5">
+      </div>
+      <div class="config-item">
+        <span class="config-label">DPI Img:</span>
+        <input type="number" id="input-dpi" class="config-input" value="300" min="72" max="2400" step="1" title="Resolución DPI para importar imágenes ráster">
+      </div>
+      <label class="mode-toggle" title="Bobina Continua (1 solo rollo dinámico) vs Láminas Fijas (Multi-pliego)">
+        <input type="checkbox" id="chk-continuous-roll" checked>
+        <span class="mode-toggle-label" id="label-mode">Rollo Continuo</span>
+      </label>
+    </div>
+
+    <!-- Botones de Control Instantáneo -->
+    <div class="btn-group">
+      <button class="btn btn-primary" id="btn-start">
+        ▶ Iniciar Anidado GPU
+      </button>
+      <button class="btn btn-stop" id="btn-stop" disabled>
+        ⏹ Detener
+      </button>
+      <button class="btn btn-secondary" id="btn-export-pdf" title="Exportar PDF Industrial con CutContour Spot Color">
+        📄 PDF CMYK
+      </button>
+      <button class="btn btn-secondary" id="btn-export-dxf" title="Exportar trazado CAD DXF 1:1 mm">
+        📐 DXF 1:1
+      </button>
+    </div>
+  </header>
+
+  <!-- 2. ESPACIO DE TRABAJO PRINCIPAL (SIDEBAR + CAD VIEWPORT) -->
+  <main class="workspace">
+
+    <!-- Panel Lateral Izquierdo: Tabla de piezas + Telemetría viva -->
+    <aside class="sidebar">
+      <!-- Lista de piezas -->
+      <div class="sidebar-section" style="flex: 1; overflow: hidden; display: flex; flex-direction: column;">
+        <div class="sidebar-header">
+          <span>Piezas a Anidar</span>
+          <span class="sidebar-badge" id="parts-badge">0 piezas (0 copias)</span>
+        </div>
+        <div class="parts-container" id="parts-list">
+          <!-- Renderizado dinámico de tarjetas de pieza -->
+        </div>
+      </div>
+
+      <!-- Telemetría Industrial en Vivo -->
+      <div class="telemetry-panel">
+        <div class="sidebar-header" style="background:transparent; padding:0 0 4px 0; border:none;">
+          <span>Telemetría GPU</span>
+          <span id="engine-status" style="color:var(--text-muted); font-size:10px; font-weight:700;">DETENIDO</span>
+        </div>
+
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" id="progress-bar"></div>
+        </div>
+
+        <div class="telemetry-grid">
+          <div class="telemetry-card">
+            <span class="telemetry-label">Piezas Colocadas</span>
+            <span class="telemetry-value highlight" id="stat-placed">0 / 0</span>
+          </div>
+          <div class="telemetry-card">
+            <span class="telemetry-label">Aprovechamiento</span>
+            <span class="telemetry-value success" id="stat-util">0.0 %</span>
+          </div>
+          <div class="telemetry-card">
+            <span class="telemetry-label">Largo Bobina</span>
+            <span class="telemetry-value" id="stat-paper">0.0 mm</span>
+          </div>
+          <div class="telemetry-card">
+            <span class="telemetry-label">Láminas / Pliegos</span>
+            <span class="telemetry-value" id="stat-sheets">0</span>
+          </div>
+        </div>
+
+        <!-- Historial de mejores anidados -->
+        <div style="font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase; margin-top:4px;">
+          Historial de Soluciones
+        </div>
+        <div class="history-section" id="history-list">
+          <div style="color:var(--text-muted); font-size:10px; padding:4px;">Sin optimizaciones aún</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Visor Vectorial CAD de Alto Rendimiento -->
+    <section class="viewport-area">
+      <!-- Barra de herramientas flotante del visor -->
+      <div class="viewport-toolbar">
+        <label class="mode-toggle" style="margin-right:6px;" title="Mostrar imagen original dentro de la silueta de corte">
+          <input type="checkbox" id="chk-show-art" checked>
+          <span class="mode-toggle-label" style="font-size:11px; color:var(--accent-cyan);">Arte Impreso</span>
+        </label>
+        <button class="tool-btn" id="btn-fit-screen" title="Encuadrar Todo (Fit to Screen)">🔍 [ ]</button>
+        <button class="tool-btn" id="btn-zoom-in" title="Acercar (+)">➕</button>
+        <button class="tool-btn" id="btn-zoom-out" title="Alejar (-)">➖</button>
+        <button class="tool-btn" id="btn-zoom-reset" title="Restablecer Escala 1:1">1:1</button>
+      </div>
+
+      <!-- Lienzo SVG interactivo (Pan & Zoom) -->
+      <svg id="svg-viewport" xmlns="http://www.w3.org/2000/svg">
+        <defs id="svg-defs">
+          <pattern id="cad-grid-pattern" width="100" height="100" patternUnits="userSpaceOnUse">
+            <path d="M 100 0 L 0 0 0 100" fill="none" stroke="rgba(51, 65, 85, 0.2)" stroke-width="0.8"/>
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(51, 65, 85, 0.08)" stroke-width="0.4"/>
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(51, 65, 85, 0.08)" stroke-width="0.4"/>
+            <path d="M 60 0 L 0 0 0 60" fill="none" stroke="rgba(51, 65, 85, 0.08)" stroke-width="0.4"/>
+            <path d="M 80 0 L 0 0 0 80" fill="none" stroke="rgba(51, 65, 85, 0.08)" stroke-width="0.4"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="url(#cad-grid-pattern)"/>
+
+        <!-- Escena CAD transformada dinámicamente mediante matriz -->
+        <g id="cad-scene">
+          <g id="sheets-layer"></g>
+          <g id="parts-layer"></g>
+          <g id="annotations-layer"></g>
+        </g>
+      </svg>
+
+      <!-- Estado vacío si no hay piezas cargadas -->
+      <div class="empty-state" id="empty-state">
+        <div style="font-size:36px;">📐</div>
+        <h3>Visor Vectorial CAD</h3>
+        <p>Carga piezas o pulsa "Lote de Prueba Industrial" para comenzar la optimización GPU en tiempo real.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="./ui_app.js"></script>
+</body>
+</html>

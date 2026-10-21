@@ -1,0 +1,38 @@
+/** test_roll.js — Modo BOBINA CONTINUA: verifica que el rollo NO se redondee a múltiplos de 1000 mm. */
+const { app, BrowserWindow, ipcMain } = require('electron');
+const path = require('path');
+const PROJ = path.join(__dirname, '..');
+const S = 1000, SP = 3;
+const rect = (x, y, w, h) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
+const rectCW = (x, y, w, h) => [{ x, y }, { x, y: y + h }, { x: x + w, y: y + h }, { x: x + w, y }];
+const reg = (cx, cy, r, n, ph = 0) => { const o = []; for (let i = 0; i < n; i++) { const a = ph + i / n * 2 * Math.PI; o.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r }); } return o; };
+const sho = p => { let s = 0; for (let i = 0; i < p.length; i++) { const j = (i + 1) % p.length; s += p[i].x * p[j].y - p[j].x * p[i].y; } return Math.abs(s) / 2; };
+const bnd = p => { let a = 1e9, b = 1e9, c = -1e9, d = -1e9; for (const q of p) { a = Math.min(a, q.x); b = Math.min(b, q.y); c = Math.max(c, q.x); d = Math.max(d, q.y); } return { x: a, y: b, width: c - a, height: d - b }; };
+const mk = (n, poly, holes, qty) => ({ filename: n, grain: 'free', quantity: qty, polygon: poly, holes: holes || [], bounds: bnd(poly), area: sho(poly) - (holes || []).reduce((a, h) => a + sho(h), 0) });
+const set = () => [mk('TILE', rect(0, 0, 300, 300), [rectCW(80, 80, 140, 140)], 16), mk('HEX', reg(50, 43, 50, 6, 0), [], 64), mk('DONUT', reg(60, 60, 60, 28), [reg(60, 60, 30, 24, Math.PI / 24)], 32), mk('TRI', [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 200 }], [], 32)];
+const trace = [];
+let lastBest = null;
+const DUR = 60000;
+app.whenReady().then(async () => {
+  const w = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: true, contextIsolation: false, backgroundThrottling: false } });
+  ipcMain.on('engine:progress', (e, d) => trace.push({ gen: d.generation, best: d.bestFitness, roll: d.bestRollLengthMm, util: d.bestUtilisation, sh: d.sheetsUsed, placed: d.placedCount, tot: d.totalCount, nb: d.isNewBest, ms: d.elapsedMs }));
+  ipcMain.on('engine:new-best', (e, d) => { lastBest = d; });
+  ipcMain.on('engine:error', (e, err) => console.log('[engine:error]', err));
+  ipcMain.on('engine:finished', (e, d) => console.log('[engine:finished]', JSON.stringify(d).slice(0, 300)));
+  ipcMain.on('engine:stopped', (e, d) => console.log('[engine:stopped]', JSON.stringify(d).slice(0, 300)));
+  ipcMain.handle('get-gpu-info', () => ({ model: 'ROLL' }));
+  w.webContents.on('console-message', (ev, lvl, msg) => { if (lvl >= 2) console.log('[win]', msg.slice(0, 200)); });
+  w.loadFile(path.join(PROJ, 'worker', 'gpu_worker.html'));
+  await new Promise(r => setTimeout(r, 1400));
+  w.webContents.send('engine:start', { parts: set(), sheetConfig: { widthMm: S, heightMm: S, spacingMm: SP, bleedMm: 0, continuousRoll: true, angleQuantum: 1 } });
+  await new Promise(r => setTimeout(r, DUR));
+  w.webContents.send('engine:stop');
+  await new Promise(r => setTimeout(r, 200));
+  const first = trace[0], rolls = trace.map(t => t.roll).filter(r => r > 0);
+  console.log(`Gens=${trace.length}  roll inicial(g1)=${first ? first.roll : '?'}mm  roll final=${rolls[rolls.length - 1]}mm`);
+  console.log(`roll mínimo visto=${Math.min(...rolls)}mm  ·  múltiplos-de-1000<=final: ${1000 * Math.ceil(rolls[rolls.length - 1] / 1000)}mm (viejo redondeo)`);
+  console.log(`newBest=${trace.filter(t => t.nb).length}  ·  ${lastBest ? 'final util=' + lastBest.utilisation.toFixed(1) + '%, hojas=' + lastBest.sheetsUsed + ', roll=' + lastBest.rollLengthMm + 'mm' : 'n/a'}`);
+  console.log('\ngen | bestFit | roll | util | sheets | placed | NEW | ms');
+  for (const t of trace.slice(-20)) console.log(`${String(t.gen).padStart(3)} | ${String(Math.round(t.best)).padStart(8)} | ${String(t.roll).padStart(4)} | ${(t.util || 0).toFixed(1)}% | ${t.sh} | ${t.placed}/${t.tot} | ${t.nb ? ' * ' : '   '} | ${t.ms}`);
+  app.exit(0);
+});

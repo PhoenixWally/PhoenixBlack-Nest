@@ -1,0 +1,20 @@
+{
+  "name": "phoenixblacknest",
+  "productName": "PhoenixBlackNest",
+  "version": "2.0.0",
+  "description": "PhoenixBlackNest - Industrial GPU Nesting Core & Decoupled 60 FPS UI",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test:e2e": "electron . --test-e2e"
+  },
+  "keywords": ["nesting", "gpu", "webgl2", "cad", "dxf", "pdf"],
+  "author": "PhoenixBlackNest",
+  "license": "AGPL-3.0-only",
+  "devDependencies": {
+    "electron": "^44.9.0"
+  },
+  "dependencies": {
+    "@electron/remote": "^2.1.2"
+  }
+}

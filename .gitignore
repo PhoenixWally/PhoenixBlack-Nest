@@ -1,0 +1,14 @@
+node_modules/
+runtime/
+dist/
+build/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+samples/
+out/
+*.tmp
