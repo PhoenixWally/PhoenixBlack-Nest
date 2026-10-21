@@ -11,6 +11,11 @@
   "keywords": ["nesting", "gpu", "webgl2", "cad", "dxf", "pdf"],
   "author": "PhoenixBlackNest",
   "license": "AGPL-3.0-only",
+  "homepage": "https://github.com/PhoenixWally/PhoenixBlack-Nest",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PhoenixWally/PhoenixBlack-Nest.git"
+  },
   "devDependencies": {
     "electron": "^44.9.0"
   },
