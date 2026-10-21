@@ -1,398 +1,493 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PhoenixBlackNest — Anidado true-shape en GPU</title>
-<meta name="description" content="Anidado true-shape en GPU para corte industrial: DXF, DWG, SVG, PDF y rasters. Sin solapes, con separación exacta y exportación DXF 1:1 mm + PDF de imposición.">
+<title>PhoenixBlackNest — true-shape nesting on the GPU</title>
+<meta name="description" content="GPU true-shape nesting for industrial cutting: DXF, DWG, SVG, PDF and raster input. Zero overlap, exact clearance, DXF 1:1 and imposition PDF output.">
 <meta name="theme-color" content="#070a10">
+<meta property="og:type" content="website">
+<meta property="og:title" content="PhoenixBlackNest — true-shape nesting on the GPU">
+<meta property="og:description" content="Packs thousands of real contours — holes and islands included — into sheets or a continuous roll, holds an exact millimetre gap and exports cut-ready files.">
+<meta property="og:image" content="screenshot.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" as="image" href="screenshot.webp" type="image/webp">
 <style>
   :root{
-    --bg:#070a10;
-    --bg-soft:#0b1119;
-    --panel:#0d141f;
-    --line:#1d2836;
-    --line-soft:#151f2b;
-    --text:#e8eef7;
-    --muted:#93a3b8;
+    --bg:#060910;
+    --bg-2:#0a0f17;
+    --panel:#0c131d;
+    --panel-2:#0e1723;
+    --line:#1b2634;
+    --line-2:#141d29;
+    --text:#e9eff8;
+    --muted:#93a4ba;
+    --dim:#6c7f96;
     --accent:#2ee6c5;
-    --accent-dim:#1a8f7d;
+    --accent-ink:#04120f;
     --warn:#ffb02e;
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
     --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-    --max:1160px;
-    --r:14px;
+    --max:1180px;
+    --r:16px;
   }
   *{box-sizing:border-box}
-  html{scroll-behavior:smooth}
-  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
   body{
-    margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
-    line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.62;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow-x:hidden;
   }
-  a{color:inherit}
-  .skip{position:absolute;left:-9999px;top:0;padding:.6rem 1rem;background:var(--accent);color:#04120f;z-index:100}
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:linear-gradient(var(--line-2) 1px,transparent 1px),linear-gradient(90deg,var(--line-2) 1px,transparent 1px);
+    background-size:64px 64px;
+    mask-image:radial-gradient(120% 80% at 50% -10%,#000 20%,transparent 85%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.035;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  main,header,footer{position:relative;z-index:1}
+  a{color:inherit;text-decoration:none}
+  .skip{position:absolute;left:-9999px;top:0;padding:.65rem 1rem;background:var(--accent);color:var(--accent-ink);z-index:99;border-radius:8px}
   .skip:focus{left:1rem;top:1rem}
-  :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 26px}
 
-  .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
-  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+  .eyebrow{display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:.7rem;letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
+  .eyebrow::before{content:"";width:26px;height:1px;background:linear-gradient(90deg,var(--accent),transparent)}
 
-  /* barra superior */
-  header.top{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);
-    background:color-mix(in srgb,var(--bg) 82%,transparent);border-bottom:1px solid var(--line-soft)}
-  .top-in{display:flex;align-items:center;gap:18px;height:64px}
-  .mark{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:650;letter-spacing:-.01em}
-  .mark svg{display:block}
-  .mark span small{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;color:var(--muted);font-weight:400;text-transform:uppercase}
-  nav.main{margin-left:auto;display:flex;gap:22px;font-size:.9rem}
-  nav.main a{color:var(--muted);text-decoration:none}
+  /* header */
+  header.top{position:sticky;top:0;z-index:60;border-bottom:1px solid var(--line-2);
+    background:rgba(6,9,16,.78);backdrop-filter:blur(16px) saturate(140%)}
+  .top-in{display:flex;align-items:center;gap:20px;height:66px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:650;letter-spacing:-.015em}
+  .brand .logo{width:30px;height:30px;border-radius:9px;border:1px solid rgba(46,230,197,.4);display:grid;place-items:center;
+    font-family:var(--mono);font-size:.72rem;color:var(--accent);letter-spacing:.02em;background:rgba(46,230,197,.06)}
+  .brand small{display:block;font-family:var(--mono);font-weight:400;font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+  nav.main{margin-left:auto;display:flex;gap:26px;font-size:.88rem}
+  nav.main a{color:var(--muted);transition:color .18s ease}
   nav.main a:hover{color:var(--text)}
-  .btn{display:inline-flex;align-items:center;gap:8px;padding:.55rem .95rem;border-radius:10px;
-    border:1px solid var(--line);text-decoration:none;font-size:.88rem;font-weight:550;color:var(--text);
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:.6rem 1rem;border-radius:11px;border:1px solid var(--line);
+    font-size:.87rem;font-weight:550;color:var(--text);background:rgba(255,255,255,.015);
     transition:border-color .18s ease,background .18s ease,transform .18s ease}
-  .btn:hover{border-color:#2b3b4e;background:#0f1724}
+  .btn:hover{border-color:#2c3d51;background:#0f1826}
   .btn:active{transform:translateY(1px)}
-  .btn.primary{background:var(--accent);color:#04120f;border-color:var(--accent)}
-  .btn.primary:hover{background:#54f0d4;border-color:#54f0d4}
-  @media(max-width:860px){nav.main{display:none}}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn.primary:hover{background:#5bf2d8;border-color:#5bf2d8}
+  .btn svg{width:15px;height:15px}
+  @media(max-width:900px){nav.main{display:none}}
 
   /* hero */
-  .hero{position:relative;overflow:hidden;border-bottom:1px solid var(--line-soft)}
-  .hero::before{
-    content:"";position:absolute;inset:0;pointer-events:none;
-    background:
-      radial-gradient(900px 420px at 78% -10%,rgba(46,230,197,.10),transparent 70%),
-      linear-gradient(180deg,transparent,var(--bg));
-  }
-  .hero::after{
-    content:"";position:absolute;inset:0;pointer-events:none;opacity:.35;
-    background-image:linear-gradient(var(--line-soft) 1px,transparent 1px),linear-gradient(90deg,var(--line-soft) 1px,transparent 1px);
-    background-size:56px 56px;
-    mask-image:radial-gradient(70% 60% at 50% 0%,#000 40%,transparent 100%);
-  }
-  .hero-in{position:relative;display:grid;grid-template-columns:1.05fr .95fr;gap:56px;padding:74px 0 64px;align-items:center}
-  h1{font-size:clamp(2.3rem,4.4vw,3.6rem);line-height:1.06;letter-spacing:-.028em;margin:.5rem 0 0;font-weight:680}
-  h1 em{font-style:normal;color:var(--accent)}
-  .lead{margin:18px 0 0;color:var(--muted);font-size:1.06rem;max-width:52ch}
-  .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:26px}
-  .metaline{display:flex;flex-wrap:wrap;gap:18px;margin-top:26px;font-family:var(--mono);font-size:.76rem;color:#6f8199}
-  .metaline span{display:flex;align-items:center;gap:7px}
-  .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(46,230,197,.12)}
+  .hero{padding:78px 0 0}
+  .hero-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:56px;align-items:start}
+  h1{margin:18px 0 0;font-size:clamp(2.5rem,4.6vw,4rem);line-height:1.02;letter-spacing:-.035em;font-weight:680}
+  h1 span{color:var(--accent)}
+  .lead{margin:20px 0 0;color:var(--muted);font-size:1.08rem;max-width:56ch}
+  .cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+  .meta{display:flex;flex-wrap:wrap;gap:20px;margin-top:28px;font-family:var(--mono);font-size:.73rem;color:var(--dim)}
+  .meta i{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--accent);margin-right:7px;vertical-align:1px}
 
-  .sheet-card{position:relative;border:1px solid var(--line);background:linear-gradient(180deg,#0c1420,#080d14);border-radius:18px;padding:18px;
-    box-shadow:0 30px 80px -40px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.03)}
-  .sheet-top{display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:.7rem;color:#7d8fa6;margin-bottom:12px;letter-spacing:.08em}
-  .sheet-top b{color:var(--accent);font-weight:500}
-  .sheet-card svg{display:block;width:100%;height:auto;border-radius:10px;background:#060a0f}
-  .sheet-foot{display:flex;justify-content:space-between;gap:12px;margin-top:12px;font-family:var(--mono);font-size:.68rem;color:#64768c}
-  @media(max-width:900px){.hero-in{grid-template-columns:1fr;gap:36px;padding:52px 0 44px}}
+  .spec{border:1px solid var(--line);border-radius:var(--r);background:linear-gradient(180deg,#0b131d,#070c13);overflow:hidden}
+  .spec-h{display:flex;justify-content:space-between;align-items:center;padding:13px 16px;border-bottom:1px solid var(--line-2);
+    font-family:var(--mono);font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+  .spec-h b{color:var(--accent);font-weight:500;letter-spacing:.1em}
+  .spec-row{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:15px 16px;border-bottom:1px solid var(--line-2)}
+  .spec-row:last-child{border-bottom:0}
+  .spec-row .k{font-size:.85rem;color:var(--muted)}
+  .spec-row .v{font-family:var(--mono);font-size:1.12rem;letter-spacing:-.01em}
+  .spec-row .v small{font-size:.62em;color:var(--accent);margin-left:1px}
+  .spec-note{padding:12px 16px;border-top:1px solid var(--line-2);font-size:.72rem;color:var(--dim)}
+  @media(max-width:980px){.hero-grid{grid-template-columns:1fr;gap:34px}.spec{max-width:520px}}
 
-  /* cifras */
-  .stats{border-bottom:1px solid var(--line-soft);background:var(--bg-soft)}
-  .stats-in{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line-soft)}
-  .stat{background:var(--bg-soft);padding:26px 22px}
-  .stat .n{font-family:var(--mono);font-size:clamp(1.5rem,2.4vw,2rem);letter-spacing:-.02em;color:var(--text)}
-  .stat .n small{font-size:.6em;color:var(--accent);margin-left:2px}
-  .stat .l{font-size:.78rem;color:var(--muted);margin-top:4px}
-  @media(max-width:820px){.stats-in{grid-template-columns:repeat(2,1fr)}}
+  /* screenshot */
+  .shot-wrap{margin:54px 0 0}
+  .shot{position:relative;border:1px solid #223042;border-radius:14px;padding:8px;background:#0a1018;
+    box-shadow:0 40px 120px -50px rgba(0,0,0,1),0 0 0 1px rgba(255,255,255,.02) inset,0 0 120px -60px rgba(46,230,197,.45)}
+  .shot img{display:block;width:100%;height:auto;border-radius:9px;transition:transform .6s cubic-bezier(.2,.7,.2,1)}
+  .shot:hover img{transform:scale(1.008)}
+  .shot .live{position:absolute;top:-12px;left:18px;display:inline-flex;align-items:center;gap:7px;padding:4px 10px;
+    background:#0b1a18;border:1px solid rgba(46,230,197,.45);border-radius:999px;font-family:var(--mono);font-size:.62rem;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  .shot .live::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px rgba(46,230,197,.15)}
+  .shot-cap{display:flex;flex-wrap:wrap;gap:10px 22px;justify-content:space-between;margin-top:14px;font-family:var(--mono);font-size:.7rem;color:var(--dim)}
+  .shot-cap b{color:#9fb2c8;font-weight:500}
+  @media (prefers-reduced-motion:reduce){.shot img{transition:none}.shot:hover img{transform:none}}
 
-  section{padding:76px 0;border-bottom:1px solid var(--line-soft)}
-  h2{font-size:clamp(1.5rem,2.5vw,2rem);letter-spacing:-.02em;margin:.4rem 0 0;font-weight:640}
-  .sub{color:var(--muted);max-width:62ch;margin:12px 0 0}
+  /* band */
+  .band{border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2);background:rgba(10,15,23,.7);margin-top:60px}
+  .band-in{display:flex;flex-wrap:wrap;gap:14px 34px;align-items:center;justify-content:space-between;padding:18px 0;
+    font-family:var(--mono);font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+  .fmt{display:flex;flex-wrap:wrap;gap:8px}
+  .fmt span{padding:3px 8px;border:1px solid var(--line);border-radius:6px;color:#9db0c6;letter-spacing:.06em}
 
-  .two{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:center}
-  @media(max-width:900px){.two{grid-template-columns:1fr;gap:28px}}
+  section{padding:86px 0;border-bottom:1px solid var(--line-2)}
+  h2{font-size:clamp(1.7rem,2.8vw,2.35rem);line-height:1.16;letter-spacing:-.025em;margin:14px 0 0;font-weight:650;max-width:20ch}
+  h2.wide{max-width:34ch}
+  .sub{color:var(--muted);max-width:64ch;margin:16px 0 0}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center}
+  @media(max-width:980px){.two{grid-template-columns:1fr;gap:34px}}
 
+  /* compare */
   .compare{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  .cmp{border:1px solid var(--line);border-radius:var(--r);padding:14px;background:var(--panel)}
-  .cmp h3{margin:0 0 10px;font-size:.74rem;font-family:var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:500}
-  .cmp.bad h3{color:#ff8f6b}
+  .cmp{border:1px solid var(--line);border-radius:14px;padding:16px;background:var(--panel)}
+  .cmp h3{margin:0;font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;font-weight:500;color:#ff8f6b}
   .cmp.good h3{color:var(--accent)}
-  .cmp svg{width:100%;height:auto;display:block}
-  .cmp p{margin:10px 0 0;font-size:.8rem;color:var(--muted)}
+  .cmp svg{display:block;width:100%;height:auto;margin:12px 0}
+  .cmp p{margin:0;font-size:.78rem;color:var(--dim)}
+  @media(max-width:560px){.compare{grid-template-columns:1fr}}
 
-  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:34px}
-  .card{border:1px solid var(--line);background:var(--panel);border-radius:var(--r);padding:22px;transition:border-color .2s ease,transform .2s ease}
-  .card:hover{border-color:#2a3a4d;transform:translateY(-2px)}
-  @media (prefers-reduced-motion:reduce){.card,.btn{transition:none}.card:hover{transform:none}}
-  .card .ic{width:30px;height:30px;color:var(--accent);margin-bottom:12px}
-  .card h3{margin:0 0 6px;font-size:1rem;font-weight:620;letter-spacing:-.01em}
-  .card p{margin:0;color:var(--muted);font-size:.88rem}
-  @media(max-width:900px){.cards{grid-template-columns:1fr 1fr}}
+  /* cards */
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:40px}
+  .card{position:relative;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,#0c141e,#0a111a);padding:24px;
+    transition:border-color .2s ease,transform .2s ease,background .2s ease}
+  .card:hover{border-color:#2a3b4f;transform:translateY(-2px)}
+  .card .num{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;color:#4d6277}
+  .card h3{margin:12px 0 7px;font-size:1rem;font-weight:620;letter-spacing:-.012em}
+  .card p{margin:0;font-size:.86rem;color:var(--muted)}
+  .card svg{position:absolute;top:22px;right:22px;width:18px;height:18px;color:#33465b}
+  @media(max-width:980px){.cards{grid-template-columns:1fr 1fr}}
   @media(max-width:620px){.cards{grid-template-columns:1fr}}
+  @media (prefers-reduced-motion:reduce){.card{transition:none}.card:hover{transform:none}}
 
-  .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:36px;counter-reset:step}
-  .step{border-top:1px solid var(--line);padding-top:16px;position:relative}
-  .step::before{counter-increment:step;content:"0" counter(step);font-family:var(--mono);font-size:.7rem;color:var(--accent);letter-spacing:.1em}
-  .step h3{margin:8px 0 6px;font-size:.95rem;font-weight:600}
+  /* engine */
+  .engine-img{border:1px solid var(--line);border-radius:14px;padding:7px;background:#0a1018;box-shadow:0 30px 80px -50px #000}
+  .engine-img img{display:block;width:100%;height:auto;border-radius:8px}
+  .engine-img figcaption{margin-top:11px;padding:0 4px;font-family:var(--mono);font-size:.68rem;color:var(--dim)}
+  ul.specs{list-style:none;margin:26px 0 0;padding:0;display:grid;gap:0;border-top:1px solid var(--line-2)}
+  ul.specs li{display:flex;gap:18px;justify-content:space-between;align-items:baseline;padding:13px 0;border-bottom:1px solid var(--line-2);font-size:.87rem;color:var(--muted)}
+  ul.specs b{font-family:var(--mono);font-size:.84rem;color:var(--text);font-weight:500;text-align:right}
+
+  /* flow */
+  .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:0;margin-top:44px;border-top:1px solid var(--line)}
+  .step{padding:22px 20px 0 0;position:relative}
+  .step::before{content:attr(data-n);font-family:var(--mono);font-size:.68rem;color:var(--accent);letter-spacing:.14em}
+  .step h3{margin:9px 0 6px;font-size:.95rem;font-weight:600}
   .step p{margin:0;font-size:.82rem;color:var(--muted)}
-  @media(max-width:900px){.flow{grid-template-columns:1fr 1fr;gap:20px}}
+  @media(max-width:980px){.flow{grid-template-columns:1fr 1fr;gap:26px 0}.step{padding-right:22px}}
+  @media(max-width:560px){.flow{grid-template-columns:1fr}}
 
-  .use{display:grid;grid-template-columns:1.1fr .9fr;gap:40px;align-items:start}
-  @media(max-width:900px){.use{grid-template-columns:1fr}}
-  ol.steps{margin:26px 0 0;padding:0;list-style:none;display:grid;gap:16px}
-  ol.steps li{display:grid;grid-template-columns:30px 1fr;gap:14px}
-  ol.steps .idx{width:26px;height:26px;border-radius:8px;border:1px solid #234;display:grid;place-items:center;font-family:var(--mono);font-size:.74rem;color:var(--accent)}
-  ol.steps b{display:block;font-weight:600;font-size:.95rem}
-  ol.steps span{color:var(--muted);font-size:.88rem}
-  pre{margin:14px 0 0;padding:14px 16px;background:#080d14;border:1px solid var(--line);border-radius:10px;overflow:auto;
-    font-family:var(--mono);font-size:.8rem;color:#cfe0f2;line-height:1.55}
-  pre .c{color:#5d7288}
-  code{font-family:var(--mono);font-size:.86em;background:#0e1622;border:1px solid var(--line-soft);padding:.1em .35em;border-radius:5px}
+  /* perf */
+  table{width:100%;border-collapse:collapse;margin-top:34px;font-size:.88rem}
+  th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--line-2);vertical-align:middle}
+  th{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:500}
+  td.k{color:var(--muted);white-space:nowrap}
+  td.v{font-family:var(--mono);color:var(--text);white-space:nowrap}
+  .bar{display:inline-block;width:92px;height:4px;border-radius:3px;background:#141f2b;overflow:hidden;vertical-align:middle;margin-left:12px}
+  .bar i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#1a9a89)}
+  .note{margin-top:18px;font-size:.76rem;color:var(--dim);max-width:70ch}
 
-  table{width:100%;border-collapse:collapse;margin-top:26px;font-size:.88rem}
-  th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line-soft);vertical-align:top}
-  th{font-family:var(--mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:500}
-  td:first-child{color:var(--muted);white-space:nowrap}
-  td.num{font-family:var(--mono);color:var(--text)}
+  /* usage */
+  .use{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:start;margin-top:40px}
+  @media(max-width:980px){.use{grid-template-columns:1fr}}
+  ol.steps{margin:0;padding:0;list-style:none;display:grid;gap:20px;counter-reset:s}
+  ol.steps li{display:grid;grid-template-columns:32px 1fr;gap:16px;counter-increment:s}
+  ol.steps .idx{width:28px;height:28px;border-radius:9px;border:1px solid #223144;display:grid;place-items:center;
+    font-family:var(--mono);font-size:.72rem;color:var(--accent);background:rgba(46,230,197,.05)}
+  ol.steps b{display:block;font-weight:600;font-size:.95rem;margin-bottom:2px}
+  ol.steps span span{color:var(--muted);font-size:.87rem}
+  pre{margin:0;padding:0;border:1px solid var(--line);border-radius:12px;background:#080d14;overflow:hidden}
+  pre .bar{display:flex;align-items:center;gap:6px;padding:9px 12px;border-bottom:1px solid var(--line-2);background:#0a1119}
+  pre .bar span{width:8px;height:8px;border-radius:50%;background:#22303f}
+  pre .bar em{margin-left:auto;font-family:var(--mono);font-size:.66rem;color:var(--dim);font-style:normal}
+  pre code{display:block;padding:16px 18px;font-family:var(--mono);font-size:.79rem;line-height:1.7;color:#cfe0f2;overflow-x:auto;white-space:pre}
+  pre .c{color:#5a7189}
+  .env{margin-top:22px}
+  .env h3{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:500;margin:0 0 8px}
+  .env table{margin-top:0}
+  .env td{padding:9px 0;font-size:.82rem}
+  .env td:first-child{font-family:var(--mono);color:#a9bcd2;padding-right:16px;white-space:nowrap}
 
-  .lic{border:1px solid var(--line);border-left:3px solid var(--warn);background:#0c1118;border-radius:12px;padding:22px 24px;margin-top:28px}
-  .lic p{margin:0;color:var(--muted);font-size:.9rem}
-  .lic p+p{margin-top:10px}
-  .lic strong{color:var(--text);font-weight:600}
+  /* license */
+  .lic{display:grid;grid-template-columns:1.2fr .8fr;gap:34px;margin-top:36px;align-items:start}
+  @media(max-width:900px){.lic{grid-template-columns:1fr}}
+  .lic-box{border:1px solid var(--line);border-left:3px solid var(--warn);background:#0b1118;border-radius:12px;padding:24px 26px}
+  .lic-box p{margin:0;color:var(--muted);font-size:.9rem}
+  .lic-box p+p{margin-top:12px}
+  .lic-box strong{color:var(--text);font-weight:600}
+  .deps{list-style:none;margin:0;padding:0;display:grid;gap:10px;font-size:.82rem}
+  .deps li{display:flex;justify-content:space-between;gap:16px;padding-bottom:10px;border-bottom:1px solid var(--line-2);color:var(--muted)}
+  .deps b{font-family:var(--mono);font-size:.72rem;color:#9db0c6;font-weight:400;letter-spacing:.04em}
 
-  footer{padding:38px 0 54px;color:#5f7189;font-size:.8rem}
-  .foot-in{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
-  .foot-in a{color:#8ea1b8;text-decoration:none}
-  .foot-in a:hover{color:var(--text)}
+  footer{padding:40px 0 56px;color:var(--dim);font-size:.78rem}
+  .foot{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
+  .foot a{color:#93a4ba}
+  .foot a:hover{color:var(--text)}
+
+  @supports (animation-timeline: view()){
+    @media (prefers-reduced-motion:no-preference){
+      .rise{animation:rise linear both;animation-timeline:view();animation-range:entry 5% cover 28%}
+      @keyframes rise{from{opacity:.001;transform:translateY(18px)}to{opacity:1;transform:none}}
+    }
+  }
 </style>
 </head>
 <body>
-<a class="skip" href="#main">Saltar al contenido</a>
+<a class="skip" href="#main">Skip to content</a>
 
 <header class="top">
   <div class="wrap top-in">
-    <a class="mark" href="#main" aria-label="PhoenixBlackNest, inicio">
-      <svg width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-        <rect x="1.5" y="1.5" width="29" height="29" rx="7" stroke="#2ee6c5" stroke-opacity=".55"/>
-        <path d="M9 23V9h7.2c2.7 0 4.3 1.5 4.3 3.9 0 2.4-1.6 3.9-4.3 3.9H12.4V23H9Z" fill="#2ee6c5"/>
-        <circle cx="22.5" cy="22.5" r="3" stroke="#ffb02e"/>
-      </svg>
+    <a class="brand" href="#main" aria-label="PhoenixBlackNest, home">
+      <span class="logo" aria-hidden="true">PB</span>
       <span>PhoenixBlackNest<small>GPU nesting core</small></span>
     </a>
-    <nav class="main" aria-label="Secciones">
-      <a href="#problema">Problema</a>
-      <a href="#capacidades">Capacidades</a>
-      <a href="#flujo">Cómo funciona</a>
-      <a href="#uso">Uso</a>
-      <a href="#licencia">Licencia</a>
+    <nav class="main" aria-label="Sections">
+      <a href="#problem">Problem</a>
+      <a href="#features">Features</a>
+      <a href="#engine">Engine</a>
+      <a href="#usage">Usage</a>
+      <a href="#license">License</a>
     </nav>
-    <a class="btn" href="https://github.com/PhoenixWally/PhoenixBlack-Nest" rel="noopener">GitHub</a>
+    <a class="btn" href="https://github.com/PhoenixWally/PhoenixBlack-Nest" rel="noopener">
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A7.99 7.99 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      GitHub
+    </a>
   </div>
 </header>
 
 <main id="main">
-  <div class="hero">
-    <div class="wrap hero-in">
-      <div>
-        <p class="eyebrow">WebGL2 · True-Shape · Windows x64</p>
-        <h1>Anidado industrial <em>sin solapes</em>, a velocidad de GPU.</h1>
-        <p class="lead">PhoenixBlackNest coloca miles de contornos reales —con sus agujeros e islas— dentro de hojas o bobina, respetando una separación exacta en milímetros y exportando DXF 1:1 y PDF de imposición listos para producción.</p>
-        <div class="cta">
-          <a class="btn primary" href="#uso">Cómo usarlo</a>
-          <a class="btn" href="https://github.com/PhoenixWally/PhoenixBlack-Nest" rel="noopener">Ver código</a>
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <div class="hero-grid">
+        <div>
+          <p class="eyebrow">WebGL2 · true-shape · Windows x64</p>
+          <h1 id="hero-title">Nesting that respects the <span>real contour</span>.</h1>
+          <p class="lead">PhoenixBlackNest packs thousands of true shapes — holes and islands included — into fixed sheets or a continuous roll. It holds an exact millimeter gap, never overlaps, and writes DXF 1:1 plus print-ready imposition PDFs.</p>
+          <div class="cta">
+            <a class="btn primary" href="https://github.com/PhoenixWally/PhoenixBlack-Nest" rel="noopener">Get the source</a>
+            <a class="btn" href="#engine">Inside the engine</a>
+          </div>
+          <p class="meta"><span><i></i>0.000000 mm² overlap</span><span><i></i>4.2 s per generation</span><span><i></i>AGPL-3.0</span></p>
         </div>
-        <div class="metaline">
-          <span><i class="dot"></i>0.000000 mm² de solape</span>
-          <span><i class="dot"></i>4.2 s por generación</span>
-          <span><i class="dot"></i>AGPL-3.0</span>
-        </div>
+
+        <aside class="spec" aria-label="Benchmark summary">
+          <div class="spec-h"><span>Measured on 180 industrial parts</span><b>LIVE</b></div>
+          <div class="spec-row"><span class="k">Roll utilization</span><span class="v">72.2<small>%</small></span></div>
+          <div class="spec-row"><span class="k">Overlap</span><span class="v">0.000000<small>mm²</small></span></div>
+          <div class="spec-row"><span class="k">Clearance held</span><span class="v">3.0000<small>mm</small></span></div>
+          <div class="spec-row"><span class="k">Batch evaluation</span><span class="v">3.78<small>ms</small></span></div>
+          <div class="spec-row"><span class="k">Search rate</span><span class="v">4.23<small>s/gen</small></span></div>
+          <div class="spec-note">Intel Arc GPU · independent geometric audit, not a marketing figure.</div>
+        </aside>
       </div>
 
-      <div class="sheet-card" aria-hidden="true">
-        <div class="sheet-top"><span>HOJA 1000 × 2000 mm</span><b>72.2 %</b></div>
-        <svg viewBox="0 0 400 300" role="img" aria-label="Nido de piezas sobre una hoja">
-          <defs>
-            <pattern id="g" width="20" height="20" patternUnits="userSpaceOnUse">
-              <path d="M20 0H0V20" fill="none" stroke="#12202e" stroke-width="1"/>
-            </pattern>
-          </defs>
-          <rect width="400" height="300" fill="url(#g)"/>
-          <rect x="10" y="10" width="380" height="280" fill="none" stroke="#1c3040" stroke-dasharray="4 5"/>
-          <g stroke="#2ee6c5" stroke-width="1.4" fill="rgba(46,230,197,.07)">
-            <rect x="24" y="26" width="72" height="52" rx="4"/>
-            <rect x="104" y="26" width="52" height="52" rx="26"/>
-            <rect x="164" y="20" width="46" height="64"/>
-            <path d="M220 26l26 15v30l-26 15-26-15V41z"/>
-            <path d="M264 30h58l-29 50z"/>
-            <rect x="330" y="24" width="44" height="58" rx="6"/>
-            <rect x="24" y="92" width="54" height="72"/>
-            <circle cx="112" cy="128" r="26"/>
-            <circle cx="112" cy="128" r="10" fill="#060a0f" stroke="#2ee6c5"/>
-            <path d="M152 92h40v30h30v40h-70z"/>
-            <path d="M232 92l34 12-8 34-30 8-10-30z"/>
-            <rect x="288" y="92" width="86" height="42" rx="4"/>
-            <rect x="288" y="146" width="86" height="42" rx="4"/>
-            <path d="M24 180h60v60H24z"/>
-            <path d="M24 205h60" stroke-opacity=".45"/>
-            <circle cx="118" cy="212" r="30"/>
-            <path d="M156 180h52v52h-52z"/>
-            <p>
-              <rect x="216" y="186" width="60" height="46" rx="3"/>
-            </p>
-            <path d="M286 180h30v58h30v-58" fill="none"/>
-            <path d="M356 180h18v66h-18z"/>
-            <rect x="24" y="248" width="150" height="26" rx="3"/>
-            <rect x="182" y="248" width="94" height="26" rx="3"/>
-            <rect x="284" y="248" width="90" height="26" rx="3"/>
-          </g>
-          <g stroke="#ffb02e" stroke-width="1" fill="none" opacity=".9">
-            <circle cx="200" cy="14" r="3"/>
-          </g>
-        </svg>
-        <div class="sheet-foot"><span>spacing 3.0000 mm</span><span>0 overlaps</span><span>gen 25/25</span></div>
+      <div class="shot-wrap">
+        <div class="shot">
+          <span class="live">Live capture</span>
+          <picture>
+            <source srcset="screenshot.webp" type="image/webp">
+            <img src="screenshot.png" width="1600" height="1000" alt="PhoenixBlackNest running a 54-part nest in roll mode: the parts list on the left, nested stars, brackets and ring parts on the sheet, and telemetry showing 54 of 54 placed at 59.1% utilization." fetchpriority="high" decoding="async">
+          </picture>
+        </div>
+        <p class="shot-cap"><span><b>54 parts · 5 references</b> — DXF, vector PDF and raster artwork</span><span>roll 1400 mm · 59.1% · gen #11</span></p>
       </div>
     </div>
-  </div>
 
-  <div class="stats">
-    <div class="wrap stats-in">
-      <div class="stat"><div class="n">72.2<small>%</small></div><div class="l">Utilización en bobina real</div></div>
-      <div class="stat"><div class="n">0.000000<small>mm²</small></div><div class="l">Solape de material verificado</div></div>
-      <div class="stat"><div class="n">3.78<small>ms</small></div><div class="l">Coste por lote evaluado en GPU</div></div>
-      <div class="stat"><div class="n">4.2<small>s/gen</small></div><div class="l">Ritmo de búsqueda (hojas fijas)</div></div>
+    <div class="band">
+      <div class="wrap band-in">
+        <span>Input</span>
+        <div class="fmt"><span>DXF</span><span>DWG</span><span>SVG</span><span>PDF</span><span>PNG</span><span>JPG</span><span>TIFF</span><span>WEBP</span></div>
+        <span>Output — DXF 1:1 · imposition PDF · runs offline</span>
+      </div>
     </div>
-  </div>
+  </section>
 
-  <section id="problema">
+  <section id="problem" class="rise">
     <div class="wrap two">
       <div>
-        <p class="eyebrow">El problema</p>
-        <h2>El CAD anida cajas. Tú pagas el material que sobra.</h2>
-        <p class="sub">Colocar por bounding box deja huecos imposibles de recuperar: dos formas en L o un anillo del tamaño justo se rechazan porque sus cajas se cruzan. Y comprobar que dos contornos no se tocan es una operación geométrica que ningún bucle secuencial puede repetir cientos de miles de veces sin morir.</p>
-        <p class="sub">El resultado típico: entre un 30 % y un 50 % de la lámina perdida, retoques manuales y riesgo de piezas que se tocan en producción.</p>
+        <p class="eyebrow">The problem</p>
+        <h2>CAD nests boxes. You pay for the material left on the table.</h2>
+        <p class="sub">Bounding boxes throw away the gaps between real shapes: two L-brackets or a ring that would interlock perfectly are rejected because their rectangles collide. And proving that two contours never touch is an expensive geometric test no sequential loop can run hundreds of thousands of times per second.</p>
+        <p class="sub">The usual outcome: 30–50% of every sheet lost, manual rework, and parts that only <em>almost</em> clear each other in production.</p>
       </div>
       <div class="compare">
-        <div class="cmp bad">
+        <div class="cmp">
           <h3>Bounding box</h3>
-          <svg viewBox="0 0 200 150" aria-hidden="true">
-            <rect x="10" y="12" width="78" height="60" fill="rgba(255,143,107,.10)" stroke="#ff8f6b" stroke-dasharray="4 4"/>
-            <rect x="70" y="52" width="78" height="60" fill="rgba(255,143,107,.10)" stroke="#ff8f6b" stroke-dasharray="4 4"/>
-            <path d="M20 24h58v20H20z" fill="#ff8f6b" opacity=".5"/>
-            <path d="M80 84h58v16H80z" fill="#ff8f6b" opacity=".5"/>
-            <text x="106" y="130" fill="#7e8fa4" font-family="monospace" font-size="9">colisión de cajas</text>
+          <svg viewBox="0 0 220 160" role="img" aria-label="Two bounding boxes overlapping, rejecting a valid placement">
+            <rect x="14" y="14" width="86" height="66" fill="rgba(255,143,107,.08)" stroke="#ff8f6b" stroke-dasharray="4 4"/>
+            <rect x="76" y="56" width="86" height="66" fill="rgba(255,143,107,.08)" stroke="#ff8f6b" stroke-dasharray="4 4"/>
+            <path d="M24 26h66v24H24z" fill="rgba(255,143,107,.55)"/>
+            <path d="M86 88h66v18H86z" fill="rgba(255,143,107,.55)"/>
+            <text x="118" y="146" fill="#6c7f96" font-family="monospace" font-size="9">rectangle collision</text>
           </svg>
-          <p>Se descarta una colocación válida y se desperdicia el hueco.</p>
+          <p>A valid interlock is discarded and the gap is wasted.</p>
         </div>
         <div class="cmp good">
-          <h3>True-shape</h3>
-          <svg viewBox="0 0 200 150" aria-hidden="true">
-            <path d="M12 18h58v20H12z" fill="rgba(46,230,197,.16)" stroke="#2ee6c5"/>
-            <path d="M76 52h58v16H76z" fill="rgba(46,230,197,.16)" stroke="#2ee6c5"/>
-            <path d="M60 22h12v60H60z" fill="none" stroke="#2ee6c5" stroke-dasharray="3 4"/>
-            <text x="24" y="130" fill="#7e8fa4" font-family="monospace" font-size="9">piezas encajadas</text>
+          <h3>True shape</h3>
+          <svg viewBox="0 0 220 160" role="img" aria-label="Two shapes interlocking with an exact clearance">
+            <path d="M18 20h66v24H18z" fill="rgba(46,230,197,.18)" stroke="#2ee6c5"/>
+            <path d="M84 56h66v18H84z" fill="rgba(46,230,197,.18)" stroke="#2ee6c5"/>
+            <path d="M70 24h10v62H70z" fill="none" stroke="#2ee6c5" stroke-dasharray="3 4"/>
+            <text x="26" y="146" fill="#6c7f96" font-family="monospace" font-size="9">exact clearance</text>
           </svg>
-          <p>El contorno real ocupa el hueco y mantiene la separación exacta.</p>
+          <p>The real contour takes the gap and keeps the separation exact.</p>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="capacidades">
+  <section id="features" class="rise">
     <div class="wrap">
-      <p class="eyebrow">Qué hace</p>
-      <h2>Un motor, de la importación al archivo de corte.</h2>
-      <p class="sub">Todo el pipeline trabaja en milímetros reales. Nada se simula: la geometría que se evalúa es la que se exporta.</p>
+      <p class="eyebrow">What it does</p>
+      <h2 class="wide">One engine, from raw import to the cut file.</h2>
+      <p class="sub">Everything is measured in real millimeters. Nothing is simulated: the geometry that gets evaluated is the geometry that gets exported.</p>
 
       <div class="cards">
-        <div class="card">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/><path d="M8 9h8v6H8z"/></svg>
-          <h3>Ingesta true-shape</h3>
-          <p>DXF con cosido topológico (LINE/ARC/SPLINE/LWPOLYLINE), DWG vía ODA, SVG con transformaciones y curvas, PDF vectorial y rasters con detección de silueta.</p>
-        </div>
-        <div class="card">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.4"/></svg>
-          <h3>Agujeros e islas</h3>
-          <p>Jerarquía de contornos real: un anillo ocupa su corona, no su caja. Las islas interiores se detectan y se pueden anidar dentro.</p>
-        </div>
-        <div class="card">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h4M7 13h7M13 9h4"/></svg>
-          <h3>Evaluación en GPU</h3>
-          <p>Ping-pong 2048×1024, hasta 8 piezas por pasada, 96 muestras por pieza y poda en el shader de los píxeles que no pueden ganar.</p>
-        </div>
-        <div class="card">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 18l5-9 4 5 3-6 4 10"/><path d="M4 18h16"/></svg>
-          <h3>Refinado al contacto</h3>
-          <p>Cada candidato se desliza hasta tocar la geometría existente: separación exacta, sin aproximaciones por píxel.</p>
-        </div>
-        <div class="card">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6 4h12v16H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>
-          <h3>Hojas fijas o bobina</h3>
-          <p>Reparto en varias hojas o rollo continuo que crece con la rejilla de ocupación, sin redondear el largo a múltiplos.</p>
-        </div>
-        <div class="card">
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>
-          <h3>Salida de producción</h3>
-          <p>DXF con polilíneas cerradas en capa <code>CutContour</code> (<code>$INSUNITS=4</code>) y PDF de imposición con marcas y sangrado.</p>
-        </div>
+        <article class="card">
+          <span class="num">01</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/><path d="M8 9h8v6H8z"/></svg>
+          <h3>True-shape intake</h3>
+          <p>DXF with topological stitching (LINE, ARC, SPLINE, LWPOLYLINE), DWG through ODA, SVG with transforms and curves, vector PDF, and rasters with silhouette detection.</p>
+        </article>
+        <article class="card">
+          <span class="num">02</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.4"/></svg>
+          <h3>Holes and islands</h3>
+          <p>Contour hierarchy is preserved: a ring only occupies its crown, not its box, and interior islands can be nested too.</p>
+        </article>
+        <article class="card">
+          <span class="num">03</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h4M7 13h7M13 9h4"/></svg>
+          <h3>GPU evaluation</h3>
+          <p>A 2048×1024 ping-pong buffer, up to 8 parts per pass, 96 samples per part, and shader-side pruning of pixels that cannot win.</p>
+        </article>
+        <article class="card">
+          <span class="num">04</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 18l5-9 4 5 3-6 4 10"/><path d="M4 18h16"/></svg>
+          <h3>Slide to contact</h3>
+          <p>Every candidate slides until it touches the geometry already placed, so the clearance is exact instead of pixel-approximate.</p>
+        </article>
+        <article class="card">
+          <span class="num">05</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6 4h12v16H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>
+          <h3>Sheets or roll</h3>
+          <p>Multi-sheet layouts, or a continuous roll that grows the occupancy grid incrementally instead of rounding length up.</p>
+        </article>
+        <article class="card">
+          <span class="num">06</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>
+          <h3>Production output</h3>
+          <p>DXF with closed polylines on a <code>CutContour</code> layer (<code>$INSUNITS=4</code>) and imposition PDF with cut marks and bleed.</p>
+        </article>
       </div>
     </div>
   </section>
 
-  <section id="flujo">
+  <section id="engine" class="rise">
+    <div class="wrap two">
+      <div>
+        <p class="eyebrow">Inside the engine</p>
+        <h2>Pixels decide. Geometry verifies.</h2>
+        <p class="sub">The sheet and every part are rasterized into float textures where depth encodes free space. A candidate position is scored by its weakest sample, not its average, so a single collision is enough to reject it. Survivors are then slid to contact with the real polygon data, and only exact geometry reaches the export.</p>
+        <ul class="specs">
+          <li><span>Evaluation grid</span><b>2048 × 1024 px</b></li>
+          <li><span>Parts per GPU pass</span><b>8</b></li>
+          <li><span>Samples per part</span><b>96 (64 edge + 32 interior)</b></li>
+          <li><span>Rotation step</span><b>1°</b></li>
+          <li><span>Batch read cost</span><b>3.78 ms</b></li>
+          <li><span>Collision check</span><b>exact polygons, 0.000000 mm²</b></li>
+        </ul>
+      </div>
+      <figure class="engine-img">
+        <picture>
+          <source srcset="detail.webp" type="image/webp">
+          <img src="detail.png" width="1280" height="1035" alt="Detail of a nested sheet: stars, L-brackets with holes and ring parts interlocking with a constant gap." decoding="async">
+        </picture>
+        <figcaption>Detail — L-brackets, stars and rings sharing the same sheet with a constant 3 mm gap.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="flow" class="rise">
     <div class="wrap">
-      <p class="eyebrow">Cómo funciona</p>
-      <h2>Cinco pasos, sin intervención manual.</h2>
+      <p class="eyebrow">Pipeline</p>
+      <h2 class="wide">Five steps, no manual touch-up.</h2>
       <div class="flow">
-        <div class="step"><h3>Contornos</h3><p>Cada archivo se convierte a polígonos en milímetros, con agujeros normalizados a su caja.</p></div>
-        <div class="step"><h3>Rasterizado</h3><p>La hoja y las piezas se dibujan en texturas float; la profundidad codifica el hueco libre.</p></div>
-        <div class="step"><h3>Evaluación</h3><p>El shader puntúa miles de posiciones por pieza y ángulo, con muestras de perímetro y de interior.</p></div>
-        <div class="step"><h3>Búsqueda</h3><p>Un genético elige orden, rotación (1°) y posición; la ventana fina afina alrededor de los mejores.</p></div>
-        <div class="step"><h3>Empaquetado</h3><p>Se compacta, se verifica el <code>spacing</code> y se exporta a DXF y PDF.</p></div>
+        <div class="step" data-n="01"><h3>Contours</h3><p>Each file becomes polygons in millimeters, with holes normalized to their box.</p></div>
+        <div class="step" data-n="02"><h3>Rasterize</h3><p>Sheet and parts are drawn into float textures; depth encodes the free space.</p></div>
+        <div class="step" data-n="03"><h3>Score</h3><p>The shader scores thousands of positions per part and angle, using edge and interior samples.</p></div>
+        <div class="step" data-n="04"><h3>Search</h3><p>A genetic search picks order, rotation and position; a fine window refines the best candidates.</p></div>
+        <div class="step" data-n="05"><h3>Export</h3><p>Solutions are compacted, clearance is verified, and DXF plus PDF are written.</p></div>
       </div>
     </div>
   </section>
 
-  <section id="uso">
+  <section id="performance" class="rise">
     <div class="wrap">
-      <p class="eyebrow">Uso</p>
-      <h2>Arrancar, importar, exportar.</h2>
+      <p class="eyebrow">Benchmarks</p>
+      <h2 class="wide">Numbers from the geometric audit.</h2>
+      <table>
+        <thead><tr><th>Metric</th><th>Value</th><th>Context</th></tr></thead>
+        <tbody>
+          <tr><td class="k">Roll utilization</td><td class="v">72.2% <span class="bar"><i style="width:72%"></i></span></td><td class="k">real batch, 144 parts</td></tr>
+          <tr><td class="k">Fixed-sheet utilization</td><td class="v">54.3% <span class="bar"><i style="width:54%"></i></span></td><td class="k">180 parts, 24 complex shapes</td></tr>
+          <tr><td class="k">Material overlap</td><td class="v">0.000000 mm²</td><td class="k">independent polygon check</td></tr>
+          <tr><td class="k">Minimum clearance</td><td class="v">3.0000 mm</td><td class="k">configured spacing, held exactly</td></tr>
+          <tr><td class="k">Generation</td><td class="v">4.23 s</td><td class="k">fixed sheets · 4.96 s roll</td></tr>
+          <tr><td class="k">Batch evaluation</td><td class="v">3.78 ms</td><td class="k">readback, 8 parts per pass</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Measured on Windows 11 with an Intel Arc GPU. Thermal state and driver version move these numbers by up to 40%; utilization depends on the shape mix.</p>
+    </div>
+  </section>
+
+  <section id="usage" class="rise">
+    <div class="wrap">
+      <p class="eyebrow">Usage</p>
+      <h2 class="wide">Start it, drop parts, export.</h2>
       <div class="use">
+        <ol class="steps">
+          <li><span class="idx">1</span><span><b>Import the parts</b><span>Drop DXF, DWG, SVG, PDF or images. The app shows detected vertices and holes before nesting starts.</span></span></li>
+          <li><span class="idx">2</span><span><b>Set the run</b><span>Sheets or roll, size, spacing, bleed, copies per reference and rotation step.</span></span></li>
+          <li><span class="idx">3</span><span><b>Nest and export</b><span>The engine runs in a hidden GPU worker and reports every generation. When it stops, export DXF 1:1 and the imposition PDF.</span></span></li>
+        </ol>
         <div>
-          <ol class="steps">
-            <li><span class="idx">1</span><span><b>Importa las piezas</b><span>Arrastra DXF, DWG, SVG, PDF o imágenes. La app muestra vértices y agujeros detectados antes de anidar.</span></span></li>
-            <li><span class="idx">2</span><span><b>Define la tirada</b><span>Hoja fija o bobina, tamaño, <code>spacing</code>, sangrado, copias por referencia y paso de rotación.</span></span></li>
-            <li><span class="idx">3</span><span><b>Anida y exporta</b><span>El motor corre en un worker GPU oculto y reporta cada generación. Al terminar, exporta DXF 1:1 y PDF de imposición.</span></span></li>
-          </ol>
-          <p class="sub" style="margin-top:22px">La versión portable no necesita instalar nada: Electron y Python 3.13 van incluidos. Para ejecutar desde el código fuente necesitas Node.js 18+ y Python 3.13 con las dependencias del README.</p>
-        </div>
-        <div>
-          <pre><span class="c">:: versión portable</span>
+          <pre><span class="bar"><span></span><span></span><span></span><em>terminal</em></span><code><span class="c">:: portable build</span>
 run.bat
 
-<span class="c">:: desde código fuente</span>
+<span class="c">:: from source</span>
 npm install
-python -m pip install shapely ezdxf reportlab ^
-  pillow numpy opencv-python-headless pymupdf pypdf
-npm start</pre>
-          <table>
-            <tr><th>Variable</th><th>Efecto</th></tr>
-            <tr><td class="num">PHOENIXBLACKNEST_PYTHON</td><td>Intérprete Python a usar</td></tr>
-            <tr><td class="num">NEST_SAMPLES</td><td>Carpeta de muestras para pruebas</td></tr>
-            <tr><td class="num">MODE / GEN</td><td>Modo y generaciones de auditoría</td></tr>
-          </table>
+python -m pip install shapely ezdxf reportlab pillow ^
+  numpy opencv-python-headless pymupdf pypdf
+npm start</code></pre>
+          <div class="env">
+            <h3>Environment</h3>
+            <table>
+              <tr><td>PHOENIXBLACKNEST_PYTHON</td><td>Python interpreter to use</td></tr>
+              <tr><td>NEST_SAMPLES</td><td>Sample folder for the tests</td></tr>
+              <tr><td>MODE / GEN</td><td>Audit mode and generation count</td></tr>
+            </table>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <section id="licencia">
+  <section id="license" class="rise">
     <div class="wrap">
-      <p class="eyebrow">Licencia</p>
-      <h2>AGPL-3.0, con todo lo que implica.</h2>
+      <p class="eyebrow">License</p>
+      <h2 class="wide">AGPL-3.0, with everything that implies.</h2>
       <div class="lic">
-        <p><strong>PhoenixBlackNest se distribuye bajo GNU Affero GPL v3.0.</strong> Puedes usarlo, estudiarlo, modificarlo y redistribuirlo; si distribuyes el programa o un servicio basado en él, debes ofrecer también el código fuente bajo la misma licencia.</p>
-        <p>La razón es <strong>PyMuPDF</strong>, la librería que extrae los trazados de los PDF, publicada bajo AGPL por Artifex. Si necesitas una distribución cerrada, sustitúyela por una alternativa permisiva o adquiere una licencia comercial.</p>
-        <p>Resto de componentes: Electron/Chromium (MIT/BSD), ezdxf, shapely, reportlab, Pillow, numpy, pypdf (MIT/BSD) y OpenCV (Apache-2.0). ODA File Converter es propietario y no se distribuye con el proyecto.</p>
+        <div class="lic-box">
+          <p><strong>PhoenixBlackNest is released under the GNU Affero GPL v3.0.</strong> You may use it, study it, modify it and redistribute it; if you distribute the program or a service built on it, you must offer the source under the same license.</p>
+          <p>The reason is <strong>PyMuPDF</strong>, the library that extracts PDF paths, published under AGPL by Artifex. For a closed-source distribution, replace it with a permissive alternative or buy a commercial license.</p>
+        </div>
+        <ul class="deps">
+          <li><span>PyMuPDF / MuPDF</span><b>AGPL-3.0</b></li>
+          <li><span>Electron / Chromium</span><b>MIT · BSD-3</b></li>
+          <li><span>ezdxf · shapely · reportlab</span><b>MIT · BSD</b></li>
+          <li><span>Pillow · numpy · pypdf</span><b>MIT · BSD</b></li>
+          <li><span>OpenCV</span><b>Apache-2.0</b></li>
+          <li><span>ODA File Converter</span><b>proprietary, not bundled</b></li>
+        </ul>
       </div>
     </div>
   </section>
 </main>
 
 <footer>
-  <div class="wrap foot-in">
-    <span>PhoenixBlackNest · anidado true-shape en GPU · 2026</span>
+  <div class="wrap foot">
+    <span>PhoenixBlackNest · GPU true-shape nesting · 2026</span>
     <span><a href="https://github.com/PhoenixWally/PhoenixBlack-Nest" rel="noopener">GitHub</a> · <a href="https://github.com/PhoenixWally/PhoenixBlack-Nest/blob/main/LICENSE" rel="noopener">AGPL-3.0</a></span>
   </div>
 </footer>

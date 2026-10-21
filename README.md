@@ -1,76 +1,76 @@
 # PhoenixBlackNest
 
-**Anidado true-shape en GPU para corte industrial.** Lee DXF/DWG/SVG/PDF e imágenes, extrae el contorno real de cada pieza (con sus agujeros), coloca todo sin solaparse sobre hojas fijas o bobina continua, y exporta DXF 1:1 mm y PDF de imposición listos para producción.
+**GPU true-shape nesting for industrial cutting.** Reads DXF/DWG/SVG/PDF and images, extracts the real contour of every part (holes included), packs them onto fixed sheets or a continuous roll without overlap, and exports DXF 1:1 mm plus print-ready imposition PDFs.
 
-- Web: [Landing page](docs/index.html)
-- Licencia: **AGPL-3.0** (ver [LICENSE](LICENSE))
+![PhoenixBlackNest nesting 54 parts in roll mode](docs/screenshot.png)
 
-## El problema
+- Website: [docs/index.html](docs/index.html)
+- License: **AGPL-3.0** — see [LICENSE](LICENSE)
 
-El anidado manual en CAD deja material sobre la mesa: las piezas se colocan por bounding box, se ignoran agujeros e islas, y los huecos entre formas complejas se desperdician. Además, verificar que dos piezas no se tocan exige comprobaciones geométricas caras que un programa secuencial no puede hacer miles de veces por segundo.
+## The problem
 
-## Qué hace
+Manual CAD nesting wastes material: parts are placed by bounding box, holes and islands are ignored, and the gaps between complex shapes are thrown away. Worse, verifying that two parts never touch is an expensive geometric test that a sequential loop cannot run hundreds of thousands of times per second.
 
-1. **Ingesta true-shape**: DXF (LINE/ARC/SPLINE/LWPOLYLINE con cosido topológico), DWG (vía ODA File Converter si está instalado), SVG (transformaciones, curvas, `use`), PDF vectorial y rasters (PNG/JPG/TIFF/WEBP/BMP) con detección de silueta.
-2. **Jerarquía de contornos**: distingue exterior, agujeros e islas, y normaliza cada pieza a milímetros reales.
-3. **Evaluación en GPU**: el motor WebGL2 rasteriza la hoja y todas las piezas en un ping-pong 2048×1024, evalúa hasta 8 piezas por pasada con 96 muestras por pieza y min-pooling de profundidad, descartando en el shader los píxeles que no pueden ganar.
-4. **Refinado al contacto**: cada candidato se desliza hasta tocar la geometría ya colocada respetando el `spacing` exacto.
-5. **Búsqueda genética**: selección, rotaciones en pasos de 1°, y ventana fina alrededor de las mejores soluciones.
-6. **Hojas fijas o bobina**: reparto en múltiples hojas o rollo continuo con extensión incremental de la rejilla.
-7. **Exportación**: DXF con `LWPOLYLINE` cerrada en capa `CutContour` (`$INSUNITS=4`) y PDF de imposición con marcas de corte, sangrado e incrustación vectorial.
+## What it does
 
-## Rendimiento medido
+1. **True-shape intake** — DXF (LINE/ARC/SPLINE/LWPOLYLINE with topological stitching), DWG (via ODA File Converter if installed), SVG (transforms, curves, `use`), vector PDF, and rasters (PNG/JPG/TIFF/WEBP/BMP) with silhouette detection.
+2. **Contour hierarchy** — outer boundary, holes and islands are kept apart, and every part is normalized to real millimeters.
+3. **GPU evaluation** — a WebGL2 engine rasterizes the sheet and all parts into a 2048×1024 ping-pong buffer, evaluates up to 8 parts per pass with 96 samples per part, and prunes doomed pixels inside the shader.
+4. **Slide to contact** — each candidate is slid until it touches the geometry already placed, honoring the exact `spacing`.
+5. **Genetic search** — selection, 1° rotation steps, and a fine window around the best candidates.
+6. **Sheets or roll** — multi-sheet layouts, or a continuous roll with an incrementally extended occupancy grid.
+7. **Export** — DXF with closed `LWPOLYLINE` on the `CutContour` layer (`$INSUNITS=4`) and an imposition PDF with cut marks and bleed.
 
-| Métrica | Valor |
+## Measured performance
+
+| Metric | Value |
 |---|---|
-| Utilización bobina (lote real, 144 piezas) | 72.2 % |
-| Utilización hojas fijas (set de auditoría, 180 piezas, 24 formas complejas) | 54.1 % |
-| Solape de material | 0.000000 mm² |
-| Separación mínima | 3.0000 mm (spacing configurado) |
-| Coste por lote evaluado | 3.78 ms |
-| Ritmo | 4.23 s/gen (fijas) · 4.96 s/gen (bobina) |
+| Roll utilization (real batch, 144 parts) | 72.2 % |
+| Fixed-sheet utilization (audit set, 180 parts, 24 complex shapes) | 54.3 % |
+| Material overlap | 0.000000 mm² |
+| Minimum clearance | 3.0000 mm (configured spacing) |
+| Batch evaluation cost | 3.78 ms |
+| Search rate | 4.23 s/gen (sheets) · 4.96 s/gen (roll) |
 
-Medido en Windows 11 con GPU Intel Arc; el rendimiento depende del equipo.
+Measured on Windows 11 with an Intel Arc GPU; results depend on the machine and the shape mix.
 
-## Requisitos
+## Requirements
 
 - Windows x64
-- Node.js 18+ y npm (para Electron)
-- Python 3.13 con: `shapely ezdxf reportlab pillow numpy opencv-python-headless pymupdf pypdf`
-
-Instalación de dependencias:
+- Node.js 18+ and npm (for Electron)
+- Python 3.13 with `shapely ezdxf reportlab pillow numpy opencv-python-headless pymupdf pypdf`
 
 ```bat
 npm install
 python -m pip install shapely ezdxf reportlab pillow numpy opencv-python-headless pymupdf pypdf
 ```
 
-## Uso
+## Usage
 
 ```bat
 run.bat
 ```
 
-o
+or
 
 ```bat
 npm start
 ```
 
-1. **Importar**: arrastra o selecciona DXF/DWG/SVG/PDF/imágenes. Cada archivo se convierte a contornos en milímetros; se muestran vértices y agujeros detectados.
-2. **Configurar**: tamaño de hoja o modo bobina, `spacing`, sangrado, cantidad de copias por pieza y paso de rotación.
-3. **Anidar**: el motor corre en un worker GPU oculto y reporta cada generación. Se puede detener en cualquier momento.
-4. **Exportar**: DXF 1:1 mm (`CutContour`) y PDF de imposición.
+1. **Import** — drag or pick DXF/DWG/SVG/PDF/images. Each file is converted to contours in millimeters, with detected vertices and holes.
+2. **Configure** — sheet size or roll mode, `spacing`, bleed, copies per part and rotation step.
+3. **Nest** — the engine runs in a hidden GPU worker and reports every generation. Stop it at any time.
+4. **Export** — DXF 1:1 mm (`CutContour`) and imposition PDF.
 
-Variables de entorno útiles:
+Environment variables:
 
-| Variable | Uso |
+| Variable | Purpose |
 |---|---|
-| `PHOENIXBLACKNEST_PYTHON` | Ruta al intérprete Python a usar |
-| `NEST_SAMPLES` | Carpeta de muestras para las pruebas |
-| `MODE`, `GEN` | Modo y generaciones en `tests/test_audit_180.js` |
+| `PHOENIXBLACKNEST_PYTHON` | Python interpreter to use |
+| `NEST_SAMPLES` | Sample folder for the tests |
+| `MODE`, `GEN` | Mode and generation count for `tests/test_audit_180.js` |
 
-## Pruebas
+## Tests
 
 ```bat
 node_modules\electron\dist\electron.exe tests\test_precision_1deg.js
@@ -78,29 +78,29 @@ node_modules\electron\dist\electron.exe tests\test_real_stress.js
 node_modules\electron\dist\electron.exe tests\test_roll.js
 ```
 
-## Arquitectura
+## Architecture
 
 ```
-main.js                  proceso principal Electron (ventanas, IPC, Python)
-worker/gpu_worker.html   worker GPU oculto (WebGL2)
-worker/engine_bridge.js  puente IPC del worker
-engine/universal_gpu_engine.js   rasterizado, evaluación y minería de piezas
-engine/core_nesting_engine.js    GA, hojas, bobina, compactación, ocupación
-engine/local_cad_converter.py    ingesta DXF/DWG/SVG/PDF/raster
-engine/pdf_imposition_exporter.py DXF 1:1 + PDF de imposición
-ui/                      interfaz desacoplada
+main.js                          Electron main process (windows, IPC, Python)
+worker/gpu_worker.html           hidden GPU worker (WebGL2)
+worker/engine_bridge.js          worker IPC bridge
+engine/universal_gpu_engine.js   rasterization, evaluation, part mining
+engine/core_nesting_engine.js    GA, sheets, roll, compaction, occupancy
+engine/local_cad_converter.py    DXF/DWG/SVG/PDF/raster intake
+engine/pdf_imposition_exporter.py DXF 1:1 + imposition PDF
+ui/                              decoupled interface
 ```
 
-## Licencia y terceros
+## License and third parties
 
-Este proyecto se distribuye bajo **GNU Affero General Public License v3.0**. Al distribuir el programa (o un servicio basado en él) debes ofrecer también el código fuente bajo la misma licencia.
+This project is distributed under the **GNU Affero General Public License v3.0**. If you distribute the program (or a service built on it), you must also offer the source under the same license.
 
-Incluye o depende de:
+Bundled or required:
 
-- **PyMuPDF (MuPDF)** — AGPL-3.0 (Artifex). Es la razón de la licencia del proyecto.
-- **Electron / Chromium** — MIT / BSD-3-Clause (avisos incluidos en el instalador de Electron).
-- **ezdxf, shapely, reportlab, Pillow, numpy, pypdf, pdfplumber** — MIT/BSD.
+- **PyMuPDF (MuPDF)** — AGPL-3.0 (Artifex). This is why the project is AGPL.
+- **Electron / Chromium** — MIT / BSD-3-Clause (notices shipped with Electron).
+- **ezdxf, shapely, reportlab, Pillow, numpy, pypdf** — MIT/BSD.
 - **OpenCV** — Apache-2.0.
-- **ODA File Converter** — propietario y gratuito; **no se distribuye** con este proyecto. Si está instalado, se usa para convertir DWG.
+- **ODA File Converter** — proprietary and free; **not bundled**. If installed, it is used to convert DWG.
 
-PyMuPDF es AGPL-3.0. Si necesitas una distribución cerrada, sustituye PyMuPDF por una alternativa permisiva o adquiere una licencia comercial de Artifex.
+If you need a closed-source distribution, replace PyMuPDF with a permissive alternative or obtain a commercial license from Artifex.
