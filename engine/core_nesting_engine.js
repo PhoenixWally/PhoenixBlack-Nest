@@ -1076,8 +1076,7 @@ class CoreNestingEngine extends EventEmitter {
         // ~2x el trabajo angular por pieza conservando la calidad (el refino fino sigue a 1Â°).
         if (pref !== null && batch && !rescue) {
             // Ángulo conocido del mejor layout: una sola pasada de batch con 4 orientaciones
-            // base (pref y sus perpendiculares) + ventana fina de ±4° = 8 ángulos = 1 pasada
-            // más. Antes: malla de 45° (9) + 2 tops x ±7° (hasta 30) = 5 pasadas.
+            // base (pref y sus perpendiculares) + ventana fina de ±3° alrededor del mejor.
             return { coarse: Array.from(new Set([pref, (pref + 90) % 360, (pref + 180) % 360, (pref + 270) % 360])), fine: 4 };
         }
 

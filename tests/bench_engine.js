@@ -22,7 +22,10 @@ const os = require('os');
 const PROJ = path.join(__dirname, '..');
 const PY = (process.env.PHOENIX_PYTHON || 'python');
 const CONV = path.join(PROJ, 'engine', 'local_cad_converter.py');
-const D = (process.env.NEST_SAMPLES || path.join(PROJ, 'samples') + path.sep);
+const D = (() => {
+  const raw = process.env.NEST_SAMPLES || path.join(PROJ, 'samples');
+  return raw.endsWith(path.sep) || raw.endsWith('/') ? raw : raw + path.sep;
+})();
 const QTY = Number(process.env.QTY || 3);
 const W = Number(process.env.W || 1000);
 const H = Number(process.env.H || 2000);
