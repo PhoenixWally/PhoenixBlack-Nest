@@ -82,6 +82,19 @@ node_modules\electron\dist\electron.exe tests\test_real_stress.js
 node_modules\electron\dist\electron.exe tests\test_roll.js
 ```
 
+Reproducible benchmark (same seed, same instance, per-run GPU counters):
+
+```bat
+set NEST_SAMPLES=D:\path\to\dxf_batch\
+set PBN_SEED=12345
+set DUR=25000
+node_modules\electron\dist\electron.exe tests\bench_engine.js
+```
+
+The engine accepts `seed` (deterministic ordering and angle exploration), so two runs
+with the same seed and inputs produce the same layout. `bench_engine.js` prints per-run
+generation throughput, utilisation and GPU batch/readback timings.
+
 ## Architecture
 
 ```

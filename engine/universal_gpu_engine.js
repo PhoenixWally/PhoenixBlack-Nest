@@ -111,6 +111,12 @@ class UniversalGpuNestingEngine {
             // franja y se pierde el mínimo global (síntoma: cribado ciego, layouts al 45 %).
             this.initPingPongBuffers(this.EVAL_MAX_W, this.EVAL_MAX_H, this.EVAL_MAX_W, this.EVAL_MAX_H);
         }
+        // OPT-1 (fail-fast): resolución de la pasada de cribado. Con 2 el shader evalúa la
+        // mitad de posiciones candidatas por eje (4× menos trabajo) y el refino analítico
+        // posterior (refineSlideToContact) recupera la posición exacta al contacto.
+        this.evalScaleX = Math.max(1, parseInt(process.env.PBN_EVAL_SCALE_X || '1', 10));
+        this.evalScaleY = Math.max(1, parseInt(process.env.PBN_EVAL_SCALE_Y || '1', 10));
+        this.stats = { batchCalls: 0, batchMs: 0, reduceMs: 0, readMs: 0, readBytes: 0 };
         console.log(`[Next-Gen GPU Engine] Inicializado backend: ${this.device.backend} (${this.device.model})`);
     }
 
@@ -1053,10 +1059,22 @@ class UniversalGpuNestingEngine {
     _evalDims(occupancy) {
         const W = Math.max(1e-3, occupancy.sheetWidthMm);
         const H = Math.max(1e-3, occupancy.sheetHeightMm);
+        // Resolución fija del cribado: la latencia de sincronización GPU→CPU (~3.7 ms por
+        // lote en ANGLE/D3D11) domina el coste, así que reducir píxeles no acelera nada y
+        // sí pierde posiciones. Se mantiene el muestreo original.
         const w = this.EVAL_MAX_W;
         let h = Math.round(w * (H / W));
         h = Math.min(this.EVAL_MAX_H, Math.max(1024, h));
         return { w, h };
+    }
+
+    /** Estadísticas acumuladas de la ruta GPU (para benchmarks; coste ~0). */
+    getStats() {
+        return Object.assign({}, this.stats);
+    }
+
+    resetStats() {
+        this.stats = { batchCalls: 0, batchMs: 0, reduceMs: 0, readMs: 0, readBytes: 0 };
     }
 
     /**
@@ -1090,6 +1108,7 @@ class UniversalGpuNestingEngine {
         for (let start = 0; start < entries.length; start += MAXB) {
             const chunk = entries.slice(start, start + MAXB);
             const n = chunk.length;
+            const tChunk = (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
             // Cavidades para el tamaÃ±o (usamos el mÃ¡ximo de dims del lote)
             let maxW = 0, maxH = 0;
@@ -1138,16 +1157,24 @@ class UniversalGpuNestingEngine {
             gl.enableVertexAttribArray(aPosLoc);
             gl.vertexAttribPointer(aPosLoc, 2, gl.FLOAT, false, 0, 0);
             gl.drawArrays(gl.TRIANGLES, 0, 6);
+            const tDraw = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+            this.stats.batchCalls++;
 
-            // ReducciÃ³n por franja (crop): escribe el mÃ­nimo de cada Ã¡ngulo en su columna
-            // del FBO de resultados, sin leer; una Ãºnica lectura por lote al final.
+            // Reducción por franja (crop): escribe el mínimo de cada ángulo en su columna
+            // del FBO de resultados, sin leer; una única lectura por lote al final.
             for (let i = 0; i < n; i++) {
                 const crop = { x0: i / n, w: 1 / n };
                 this.executeGpuMinPoolingPass(occupancy, chunk[i].widthMm, chunk[i].heightMm, crop, this.fboEval, this.texEval, i, evalW, evalH);
             }
             const outBuf = new Float32Array(n * 4);
+            const tReduce = (typeof performance !== 'undefined' ? performance.now() : Date.now());
             gl.bindFramebuffer(gl.FRAMEBUFFER, this.fboOut);
             gl.readPixels(0, 0, n, 1, gl.RGBA, gl.FLOAT, outBuf);
+            const tRead = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+            this.stats.reduceMs += (tReduce - tDraw);
+            this.stats.readMs += (tRead - tReduce);
+            this.stats.readBytes += n * 4 * 4;
+            this.stats.batchMs += (tRead - tChunk);
             gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
             for (let i = 0; i < n; i++) {

@@ -28,6 +28,11 @@ class CoreNestingEngine extends EventEmitter {
         this.timer = null;
         this.startTime = 0;
         this.maxRollGrowths = 8;
+        this.seed = (options.seed !== undefined && options.seed !== null)
+            ? (parseInt(options.seed, 10) | 0)
+            : ((Date.now() ^ 0x9E3779B9) | 0);
+        this._rngState = this.seed >>> 0;
+        this._prof = { calls: 0, total: 0, batch: 0, refine: 0, grid: 0 };
 
         // El motor es de BUCLE CONTINUO: no se auto-detiene. SÃ³lo para por engine:stop().
         // (valores conservados por compatibilidad de API; no disparan parada automÃ¡tica)
@@ -37,6 +42,14 @@ class CoreNestingEngine extends EventEmitter {
         this.noImproveGenerations = 0;
         this.completed = false;
         this.finishReason = null;
+    }
+
+    /** PRNG determinista (mulberry32): la misma semilla reproduce la misma ejecucion. */
+    _rand() {
+        let t = (this._rngState = (this._rngState + 0x6D2B79F5) >>> 0);
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     }
 
     /**
@@ -243,23 +256,23 @@ class CoreNestingEngine extends EventEmitter {
                         // Sacudida fuerte: mezcla 35% del orden + inversiones de pares adyacentes
                         const kick = Math.max(2, Math.ceil(n * 0.35));
                         for (let m = 0; m < kick; m++) {
-                            const i = Math.floor(Math.random() * n);
-                            const j = Math.floor(Math.random() * n);
+                            const i = Math.floor(this._rand() * n);
+                            const j = Math.floor(this._rand() * n);
                             if (i === j) continue;
                             const t = base[i]; base[i] = base[j]; base[j] = t;
                         }
-                        const invCount = 1 + Math.floor(Math.random() * 3);
+                        const invCount = 1 + Math.floor(this._rand() * 3);
                         for (let m = 0; m < invCount; m++) {
-                            const i = Math.floor(Math.random() * (n - 1));
+                            const i = Math.floor(this._rand() * (n - 1));
                             const t = base[i]; base[i] = base[i + 1]; base[i + 1] = t;
                         }
                     } else {
-                        const mutations = 1 + Math.floor(Math.random() * 3);
+                        const mutations = 1 + Math.floor(this._rand() * 3);
                         for (let m = 0; m < mutations; m++) {
-                            const i = Math.floor(Math.random() * n);
-                            const j = Math.floor(Math.random() * n);
+                            const i = Math.floor(this._rand() * n);
+                            const j = Math.floor(this._rand() * n);
                             if (i === j) continue;
-                            if (Math.random() < 0.5) {
+                            if (this._rand() < 0.5) {
                                 const t = base[i]; base[i] = base[j]; base[j] = t;
                             } else {
                                 const moved = base.splice(i, 1)[0];
@@ -277,18 +290,18 @@ class CoreNestingEngine extends EventEmitter {
                         for (const pl of (sh.placements || [])) prevAngleById.set(pl.id, pl.rotation | 0);
                     }
                 }
-                const rotCount = stagnant ? (4 + Math.floor(Math.random() * 8)) : (2 + Math.floor(Math.random() * 4));
+                const rotCount = stagnant ? (4 + Math.floor(this._rand() * 8)) : (2 + Math.floor(this._rand() * 4));
                 const candidates = partsToPlace.filter(p => p.grain !== 'fixed');
                 for (let r = 0; r < rotCount && candidates.length > 0; r++) {
-                    const part = candidates[Math.floor(Math.random() * candidates.length)];
+                    const part = candidates[Math.floor(this._rand() * candidates.length)];
                     if (part.grain === 'grain') {
-                        forcedAngles[part.id] = (Math.random() < 0.5) ? 0 : 180;
-                    } else if (Math.random() < 0.35) {
+                        forcedAngles[part.id] = (this._rand() < 0.5) ? 0 : 180;
+                    } else if (this._rand() < 0.35) {
                         const prev = prevAngleById.has(part.id) ? prevAngleById.get(part.id) : 0;
-                        const d = (1 + Math.floor(Math.random() * 5)) * (Math.random() < 0.5 ? -1 : 1);
+                        const d = (1 + Math.floor(this._rand() * 5)) * (this._rand() < 0.5 ? -1 : 1);
                         forcedAngles[part.id] = ((prev + d) % 360 + 360) % 360;
                     } else {
-                        forcedAngles[part.id] = Math.floor(Math.random() * 360);
+                        forcedAngles[part.id] = Math.floor(this._rand() * 360);
                     }
                 }
             }
@@ -302,7 +315,7 @@ class CoreNestingEngine extends EventEmitter {
         // lugar del antiguo 1+1 hill-climbing que se estancaba tras la 2Âª pasada.
         const POP_SIZE = Math.max(8, Math.min(48, parseInt((config && config.populationSize) || 24, 10)));
         const population = [];
-        const randInt = (n) => Math.floor(Math.random() * n);
+        const randInt = (n) => Math.floor(this._rand() * n);
         const shuffle = (arr) => { for (let i = arr.length - 1; i > 0; i--) { const j = randInt(i + 1); const t = arr[i]; arr[i] = arr[j]; arr[j] = t; } return arr; };
         const validOrder = (order, n) => {
             if (!Array.isArray(order) || order.length !== n) return false;
@@ -347,11 +360,11 @@ class CoreNestingEngine extends EventEmitter {
             const n = order.length; if (n < 2) return;
             // La sacudida destructiva del 35% sÃ³lo se aplica de forma OCASIONAL: si se aplica en
             // cada generaciÃ³n estancada el GA nunca explota el entorno local del mejor layout.
-            const shake = !!heavy && Math.random() < 0.12;
+            const shake = !!heavy && this._rand() < 0.12;
             const count = shake ? Math.max(2, Math.ceil(n * 0.35)) : (1 + randInt(3));
             for (let m = 0; m < count; m++) {
                 const i = randInt(n), j = randInt(n); if (i === j) continue;
-                if (Math.random() < 0.5) { const t = order[i]; order[i] = order[j]; order[j] = t; }
+                if (this._rand() < 0.5) { const t = order[i]; order[i] = order[j]; order[j] = t; }
                 else { const mv = order.splice(i, 1)[0]; order.splice(j, 0, mv); }
             }
             if (shake) {
@@ -367,10 +380,10 @@ class CoreNestingEngine extends EventEmitter {
             for (let r = 0; r < rotCount; r++) {
                 const part = cands[randInt(cands.length)];
                 if (!part) continue;
-                if (part.grain === 'grain') angles[part.id] = (Math.random() < 0.5) ? 0 : 180;
-                else if (Math.random() < 0.4) {
+                if (part.grain === 'grain') angles[part.id] = (this._rand() < 0.5) ? 0 : 180;
+                else if (this._rand() < 0.4) {
                     const prev = (angles[part.id] !== undefined) ? angles[part.id] : 0;
-                    const d = (1 + randInt(5)) * (Math.random() < 0.5 ? -1 : 1);
+                    const d = (1 + randInt(5)) * (this._rand() < 0.5 ? -1 : 1);
                     angles[part.id] = ((prev + d) % 360 + 360) % 360;
                 } else angles[part.id] = randInt(360);
             }
@@ -429,7 +442,7 @@ class CoreNestingEngine extends EventEmitter {
             const idx = order.findIndex(p => p.id === id);
             if (idx <= 0) return;
             const moved = order.splice(idx, 1)[0];
-            const at = (Math.random() < 0.6) ? 0 : randInt(Math.min(6, order.length + 1));
+            const at = (this._rand() < 0.6) ? 0 : randInt(Math.min(6, order.length + 1));
             order.splice(at, 0, moved);
         };
 
@@ -463,15 +476,15 @@ class CoreNestingEngine extends EventEmitter {
         const breedChild = () => {
             if (population.length < 2) return { order: shuffle(partsToPlace.slice()), angles: {} };
             const elite = population[0];
-            const p1 = (Math.random() < 0.65) ? elite : (tournament() || elite);
+            const p1 = (this._rand() < 0.65) ? elite : (tournament() || elite);
             let p2 = tournament() || elite;
             if (p2 === p1 && population.length > 1) p2 = population[1 + randInt(population.length - 1)];
             const order = oxCrossover(p1.order, p2.order);
             const angles = Object.assign({}, p1.angles);
-            if (Math.random() < 0.5) Object.assign(angles, p2.angles);
+            if (this._rand() < 0.5) Object.assign(angles, p2.angles);
             const heavy = this.noImproveGenerations >= 4;
-            if (Math.random() < 0.4) deepestMove(order);
-            if (Math.random() < 0.25) tailFirstPromote(order);
+            if (this._rand() < 0.4) deepestMove(order);
+            if (this._rand() < 0.25) tailFirstPromote(order);
             mutateOrder(order, heavy);
             mutateAngles(order, angles, heavy);
             return { order, angles };
@@ -483,7 +496,7 @@ class CoreNestingEngine extends EventEmitter {
             const order = best.order.slice();
             const angles = Object.assign({}, best.angles);
             const n = order.length;
-            const r = Math.random();
+            const r = this._rand();
             if (r < 0.3) {
                 deepestMove(order);
             } else if (r < 0.45) {
@@ -530,7 +543,7 @@ class CoreNestingEngine extends EventEmitter {
                 const at = randInt(Math.min(12, order.length + 1));
                 order.splice(at, 0, moved);
             }
-            if (Math.random() < 0.35 && order.length > 10) {
+            if (this._rand() < 0.35 && order.length > 10) {
                 const i = randInt(Math.min(10, order.length));
                 const j = order.length - 1 - randInt(Math.min(10, order.length));
                 if (i !== j) { const t = order[i]; order[i] = order[j]; order[j] = t; }
@@ -588,11 +601,11 @@ class CoreNestingEngine extends EventEmitter {
 
             for (const p of inter) {
                 if (p.grain && p.grain !== 'free') continue;
-                if (Math.random() >= 0.45) continue;
+                if (this._rand() >= 0.45) continue;
                 const cur = angles[p.id] !== undefined ? angles[p.id] : 0;
                 const deltas = [1, 2, 3, 5, 8, 15, 45, 90];
                 const d = deltas[randInt(deltas.length)];
-                angles[p.id] = ((cur + (Math.random() < 0.5 ? d : -d)) % 360 + 360) % 360;
+                angles[p.id] = ((cur + (this._rand() < 0.5 ? d : -d)) % 360 + 360) % 360;
             }
             return { order: frozen.concat(inter), angles };
         };
@@ -602,12 +615,12 @@ class CoreNestingEngine extends EventEmitter {
             if (seedIdx < seeds.length) {
                 const s = seeds[seedIdx++];
                 cand = { order: s.order.slice(), angles: Object.assign({}, s.angles) };
-            } else if (this.noImproveGenerations >= 2 && Math.random() < 0.5) {
+            } else if (this.noImproveGenerations >= 2 && this._rand() < 0.5) {
                 // Estancado: 50% de las generaciones van dirigidas a la franja crÃ­tica.
                 cand = criticalBandChild();
-            } else if (Math.random() < 0.34) {
+            } else if (this._rand() < 0.34) {
                 cand = topSweepChild();
-            } else if (Math.random() < 0.45) {
+            } else if (this._rand() < 0.45) {
                 cand = localSearchChild();
             } else {
                 cand = breedChild();
@@ -1081,6 +1094,7 @@ class CoreNestingEngine extends EventEmitter {
     }
 
     async _tryPlaceOnSheet(sheet, part, sheetW, sheetH, spacing, bleed, forcedAngles, rescue) {
+        const _tStart = performance.now();
 
         // Gate barato: si el espacio libre teÃ³rico de la hoja no da ni para el Ã¡rea de la pieza
         // mÃ¡s su margen perimetral, no se pierde tiempo evaluando esa hoja.
@@ -1100,6 +1114,7 @@ class CoreNestingEngine extends EventEmitter {
 
         // ---- Paso A: exploraciÃ³n angular (batch GPU si estÃ¡ disponible) ----
         let results = null;
+        const _tBatch0 = performance.now();
         if (gpu.evalBatchProgram) {
             const r = gpu.findBestPlacementBatch(occupancy, part.polygon, part.holes, plan.coarse, bleed, spacing, cacheKey);
             if (r) results = r.results;
@@ -1155,6 +1170,8 @@ class CoreNestingEngine extends EventEmitter {
             }
         }
 
+        this._prof.batch += performance.now() - _tBatch0;
+        const _tRef = performance.now();
         let bestEval = (results && results.length > 0) ? results[0] : null;
         let bestAngle = bestEval ? bestEval.angle : null;
         let normGeo = bestEval ? bestEval.normGeo : null;
@@ -1173,6 +1190,9 @@ class CoreNestingEngine extends EventEmitter {
                 rescue ? { fine: true, occupancy: occupancy, stepMm: 1.0, cacheKey: cacheKey, minScanY: minScanY } : {}
             );
         }
+
+        this._prof.refine += performance.now() - _tRef;
+        const _tGrid = performance.now();
 
         // FALLBACK DE COMPLETITUD / RESCATE: barrido de rejilla True Shape sobre los mejores
         // Ã¡ngulos, con confirmaciÃ³n analÃ­tica y refino fino si es rescate.
@@ -1215,8 +1235,11 @@ class CoreNestingEngine extends EventEmitter {
             }
         }
 
+        this._prof.grid += performance.now() - _tGrid;
         if (!refined || refined.failedToFitSheet || !normGeo) return false;
         if (bestAngle === null) bestAngle = 0;
+        this._prof.total += performance.now() - _tStart;
+        this._prof.calls++;
         this._commitPlacement(sheet, part, normGeo, refined, bestAngle, inHole, bleed, spacing);
         if (!forcedAngles || forcedAngles[part.id] === undefined) {
             if (!sheet.minSearchYBySource) sheet.minSearchYBySource = new Map();
@@ -1473,7 +1496,7 @@ class CoreNestingEngine extends EventEmitter {
                 for (let t = 0; t < kTop; t++) chosen.add(byTop[t].i);
             }
             while (chosen.size < Math.min(k, fullPlacements.length)) {
-                chosen.add(Math.floor(Math.random() * fullPlacements.length));
+                chosen.add(Math.floor(this._rand() * fullPlacements.length));
             }
             keep = [];
             victims = [];

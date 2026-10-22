@@ -59,7 +59,10 @@ ipcRenderer.on('engine:start', async (event, payload) => {
     }
 
     currentEngine = new CoreNestingEngine({
-        pixelSizeMm: 0.5
+        pixelSizeMm: 0.5,
+        seed: (payload && payload.seed !== undefined)
+            ? payload.seed
+            : (process.env.PBN_SEED ? parseInt(process.env.PBN_SEED, 10) : undefined)
     });
 
     currentEngine.on('progress', (data) => {
@@ -116,6 +119,39 @@ ipcRenderer.on('engine:start', async (event, payload) => {
     } catch (e) {
         console.error('[GPU Worker] Error fatal al arrancar:', e);
         ipcRenderer.send('engine:error', String(e && e.message ? e.message : e));
+    }
+});
+
+// Telemetría técnica para benchmarks/tests (no usada por la UI)
+ipcRenderer.on('engine:debug-stats', () => {
+    ipcRenderer.send('engine:debug-stats:result', {
+        gpu: (currentEngine && currentEngine.gpuEngine && currentEngine.gpuEngine.getStats)
+            ? currentEngine.gpuEngine.getStats()
+            : null,
+        engine: currentEngine ? {
+            generations: currentEngine.generationsCompleted,
+            evalScaleX: currentEngine.gpuEngine ? currentEngine.gpuEngine.evalScaleX : 1,
+            evalScaleY: currentEngine.gpuEngine ? currentEngine.gpuEngine.evalScaleY : 1,
+            prof: currentEngine._prof || null
+        } : null
+    });
+});
+
+// Micro-benchmark de readPixels (depuración de cuellos de botella)
+ipcRenderer.on('engine:micro', () => {
+    try {
+        const g = currentEngine.gpuEngine;
+        const gl = g.gl;
+        const buf = new Float32Array(64);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, g.fboOut);
+        const t0 = performance.now();
+        const N = 60;
+        for (let i = 0; i < N; i++) gl.readPixels(0, 0, 8, 1, gl.RGBA, gl.FLOAT, buf);
+        const dt = performance.now() - t0;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        ipcRenderer.send('engine:micro:result', { perCall: dt / N, total: dt, n: N });
+    } catch (e) {
+        ipcRenderer.send('engine:micro:result', { error: String(e && e.message ? e.message : e) });
     }
 });
 
