@@ -14,26 +14,51 @@ let uiWindow = null;
 let gpuWorkerWindow = null;
 let powerSaveId = null;
 let gpuInfoCached = null;
+let uiLoadRetried = false;
 
-// Resolucion portable del interprete Python: variable de entorno > runtime incluido > PATH
-function resolvePython() {
-    const candidates = [];
-    if (process.env.PHOENIXBLACKNEST_PYTHON) candidates.push(process.env.PHOENIXBLACKNEST_PYTHON);
-    candidates.push(path.join(__dirname, 'runtime', 'python', 'python.exe'));
-    candidates.push(path.join(__dirname, 'runtime', 'python', 'bin', 'python3'));
-    const local = candidates.find((p) => p && fs.existsSync(p));
-    if (local) return local;
-    return process.platform === 'win32' ? 'python' : 'python3';
+// 2. INSTANCIA UNICA: dos procesos sobre el mismo perfil de GPU acaban en ventana en blanco,
+// "Network service crashed" o "GPU state invalid". La segunda ejecucion trae al frente la primera.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+    app.quit();
+} else {
+    app.on('second-instance', () => {
+        if (uiWindow && !uiWindow.isDestroyed()) {
+            if (uiWindow.isMinimized()) uiWindow.restore();
+            uiWindow.show();
+            uiWindow.focus();
+        }
+    });
 }
-const PYTHON_PATH = resolvePython();
-// Entorno Python aislado: sin paquetes del usuario, UTF-8 y sin escribir bytecode
-const PY_ENV = Object.assign({}, process.env, {
-    PYTHONNOUSERSITE: '1',
-    PYTHONUTF8: '1',
-    PYTHONDONTWRITEBYTECODE: '1'
+
+// 3. Fallos silenciosos fuera: cualquier excepcion no capturada deja rastro en consola.
+process.on('uncaughtException', (err) => {
+    console.error('[UNCAUGHT]', err);
 });
-const EXPORTER_SCRIPT = path.join(__dirname, 'engine', 'pdf_imposition_exporter.py');
-const CONVERTER_SCRIPT = path.join(__dirname, 'engine', 'local_cad_converter.py');
+process.on('unhandledRejection', (err) => {
+    console.error('[UNHANDLED REJECTION]', err);
+});
+
+
+// Ubicación de Python para exporters y convertidores CAD
+// En una build empaquetada, __dirname apunta dentro de app.asar y Python no puede leer desde
+// ahí: los .py se desempaquetan a app.asar.unpacked (ver asarUnpack en package.json).
+const ASSET_DIR = __dirname.includes('app.asar') ? __dirname.replace('app.asar', 'app.asar.unpacked') : __dirname;
+const defaultPython = 'C:\\Program Files\\Python313\\python.exe';
+const PYTHON_PATH = (() => {
+    if (process.env.PHOENIXBLACKNEST_PYTHON) return process.env.PHOENIXBLACKNEST_PYTHON;
+    const candidates = [
+        path.join(process.resourcesPath || '', 'runtime', 'python', 'python.exe'),
+        path.join(ASSET_DIR, 'runtime', 'python', 'python.exe'),
+        defaultPython
+    ];
+    for (const c of candidates) {
+        if (c && fs.existsSync(c)) return c;
+    }
+    return 'python';
+})();
+const EXPORTER_SCRIPT = path.join(ASSET_DIR, 'engine', 'pdf_imposition_exporter.py');
+const CONVERTER_SCRIPT = path.join(ASSET_DIR, 'engine', 'local_cad_converter.py');
 
 function createWindows() {
     try {
@@ -62,6 +87,18 @@ function createWindows() {
         console.error('[GPU Worker Crashed]', e);
     });
 
+    // Recuperacion del worker: si el proceso de render del worker muere, se recarga en vez de
+    // dejar la UI muda (era el sintoma de "no ui window" en ejecuciones repetidas).
+    gpuWorkerWindow.webContents.on('render-process-gone', (e, details) => {
+        console.error('[GPU Worker] render-process-gone', JSON.stringify(details));
+        if (details && details.reason === 'clean-exit') return;
+        if (gpuWorkerWindow && !gpuWorkerWindow.isDestroyed()) {
+            setTimeout(() => {
+                if (gpuWorkerWindow && !gpuWorkerWindow.isDestroyed()) gpuWorkerWindow.reload();
+            }, 800);
+        }
+    });
+
     // CAPA B: Frontend Industrial Reactivo
     const isE2E = process.argv.includes('--test-e2e');
 
@@ -72,7 +109,7 @@ function createWindows() {
         minWidth: 1024,
         minHeight: 700,
         backgroundColor: '#0f172a',
-        show: !isE2E, // En modo E2E puede estar visible o ejecutarse directamente
+        show: false,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
@@ -80,11 +117,32 @@ function createWindows() {
         }
     });
 
-    if (isE2E) {
-        uiWindow.show();
-    }
+    // La ventana aparece cuando el DOM esta listo; si ready-to-show no llega en 6 s se muestra
+    // igualmente para no dejar la app "arrancada pero invisible".
+    let uiShown = false;
+    const showUi = () => {
+        if (uiShown) return;
+        uiShown = true;
+        if (uiWindow && !uiWindow.isDestroyed()) uiWindow.show();
+    };
+    uiWindow.once('ready-to-show', showUi);
+    setTimeout(showUi, 6000);
 
     uiWindow.loadFile(path.join(__dirname, 'ui', 'ui_window.html'));
+
+    // Si la carga falla (ruta, permisos, asar corrupto) se reintenta una vez y se registra el
+    // motivo real en consola en vez de dejar una ventana vacia.
+    uiWindow.webContents.on('did-fail-load', (e, code, desc, url, isMainFrame) => {
+        console.error('[UI] did-fail-load', code, desc, url, 'mainFrame=' + isMainFrame);
+        if (isMainFrame && !uiLoadRetried) {
+            uiLoadRetried = true;
+            setTimeout(() => {
+                if (uiWindow && !uiWindow.isDestroyed()) {
+                    uiWindow.loadFile(path.join(__dirname, 'ui', 'ui_window.html'));
+                }
+            }, 600);
+        }
+    });
 
     uiWindow.on('closed', () => {
         uiWindow = null;
@@ -223,8 +281,7 @@ function executePythonExport(jobData, outputPath, mode = 'pdf') {
         fs.writeFileSync(tempJson, JSON.stringify(jobData, null, 2), 'utf-8');
 
         execFile(PYTHON_PATH, [EXPORTER_SCRIPT, tempJson, outputPath, mode], {
-            maxBuffer: 100 * 1024 * 1024,
-            env: PY_ENV
+            maxBuffer: 100 * 1024 * 1024
         }, (error, stdout, stderr) => {
             try { fs.unlinkSync(tempJson); } catch (e) {}
 
@@ -251,8 +308,7 @@ function processImportFile(filePath, dpi = 300) {
         const filename = path.basename(filePath);
 
         execFile(PYTHON_PATH, [CONVERTER_SCRIPT, filePath, String(dpi)], {
-            maxBuffer: 50 * 1024 * 1024,
-            env: PY_ENV
+            maxBuffer: 50 * 1024 * 1024
         }, (error, stdout, stderr) => {
             const errMatch = stdout ? stdout.match(/---BEGIN_ERROR---([\s\S]*?)---END_ERROR---/) : null;
 
@@ -335,14 +391,14 @@ async function runAutomatedE2ETest() {
         console.log(`[E2E] Boot OK. GPU detectada: ${gpuInfoCached ? gpuInfoCached.model : 'N/A'}`);
 
         // 1. Verificar generación e importación de imágenes reales
-        const starPath = path.join(__dirname, 'sticker_estrella.png');
-        const jpgPath = path.join(__dirname, 'pieza_fondo_blanco.jpg');
+        const starPath = path.join(ASSET_DIR, 'sticker_estrella.png');
+        const jpgPath = path.join(ASSET_DIR, 'pieza_fondo_blanco.jpg');
 
         // Si no existen, generarlas con el script de prueba
         if (!fs.existsSync(starPath) || !fs.existsSync(jpgPath)) {
-            const testScript = path.join(__dirname, 'test_contour.py');
+            const testScript = path.join(ASSET_DIR, 'test_contour.py');
             await new Promise((res, rej) => {
-                execFile(PYTHON_PATH, [testScript], { cwd: __dirname, env: PY_ENV }, (err) => err ? rej(err) : res());
+                execFile(PYTHON_PATH, [testScript], { cwd: ASSET_DIR }, (err) => err ? rej(err) : res());
             });
         }
 
@@ -470,7 +526,9 @@ async function runAutomatedE2ETest() {
     }
 }
 
-app.whenReady().then(createWindows);
+if (gotSingleInstanceLock) {
+    app.whenReady().then(createWindows);
+}
 
 app.on('window-all-closed', () => {
     if (powerSaveId !== null && powerSaveBlocker.isStarted(powerSaveId)) {

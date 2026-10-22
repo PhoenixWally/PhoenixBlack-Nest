@@ -1,25 +1,75 @@
 {
-  "name": "phoenixblacknest",
-  "productName": "PhoenixBlackNest",
-  "version": "2.0.0",
-  "description": "PhoenixBlackNest - Industrial GPU Nesting Core & Decoupled 60 FPS UI",
-  "main": "main.js",
-  "scripts": {
-    "start": "electron .",
-    "test:e2e": "electron . --test-e2e"
-  },
-  "keywords": ["nesting", "gpu", "webgl2", "cad", "dxf", "pdf"],
-  "author": "PhoenixBlackNest",
-  "license": "AGPL-3.0-only",
-  "homepage": "https://github.com/PhoenixWally/PhoenixBlack-Nest",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/PhoenixWally/PhoenixBlack-Nest.git"
-  },
-  "devDependencies": {
-    "electron": "^44.9.0"
-  },
-  "dependencies": {
-    "@electron/remote": "^2.1.2"
-  }
+    "name":  "phoenixblacknest",
+    "productName":  "PhoenixBlackNest",
+    "version":  "2.0.0",
+    "description":  "PhoenixBlackNest - Industrial GPU Nesting Core \u0026 Decoupled 60 FPS UI",
+    "main":  "main.js",
+    "scripts":  {
+                    "start":  "electron .",
+                    "test:e2e":  "electron . --test-e2e",
+                    "dist":  "electron-builder --win portable",
+                    "dist:installer":  "electron-builder --win nsis"
+                },
+    "keywords":  [
+                     "nesting",
+                     "gpu",
+                     "webgl2",
+                     "cad",
+                     "dxf",
+                     "pdf"
+                 ],
+    "author":  "PhoenixBlackNest",
+    "license":  "AGPL-3.0-only",
+    "homepage":  "https://github.com/PhoenixWally/PhoenixBlack-Nest",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "https://github.com/PhoenixWally/PhoenixBlack-Nest.git"
+                   },
+    "devDependencies":  {
+                            "electron":  "^44.9.0",
+                            "electron-builder":  "^26.15.3"
+                        },
+    "dependencies":  {
+                         "@electron/remote":  "^2.1.2"
+                     },
+    "build":  {
+                  "appId":  "com.phoenixblacknest.nesting",
+                  "productName":  "PhoenixBlackNest",
+                  "asar":  true,
+                  "asarUnpack":  [
+                                     "engine/*.py",
+                                     "test_contour.py",
+                                     "sticker_estrella.png",
+                                     "pieza_fondo_blanco.jpg"
+                                 ],
+                  "files":  [
+                                "main.js",
+                                "ui/**/*",
+                                "worker/**/*",
+                                "engine/**/*",
+                                "test_contour.py",
+                                "sticker_estrella.png",
+                                "pieza_fondo_blanco.jpg",
+                                "package.json",
+                                "!tests/**/*",
+                                "!docs/**/*",
+                                "!dist/**/*"
+                            ],
+                  "directories":  {
+                                      "output":  "dist"
+                                  },
+                  "win":  {
+                              "target":  [
+                                             {
+                                                 "target":  "portable",
+                                                 "arch":  [
+                                                              "x64"
+                                                          ]
+                                             }
+                                         ]
+                          },
+                  "portable":  {
+                                   "artifactName":  "PhoenixBlackNest-${version}-portable.exe"
+                               }
+              }
 }
