@@ -56,7 +56,8 @@
                                 "!dist/**/*"
                             ],
                   "directories":  {
-                                      "output":  "dist"
+                                      "output":  "dist",
+                                      "buildResources":  "build"
                                   },
                   "win":  {
                               "target":  [
@@ -66,7 +67,8 @@
                                                               "x64"
                                                           ]
                                              }
-                                         ]
+                                         ],
+                              "icon":  "build/icon.ico"
                           },
                   "portable":  {
                                    "artifactName":  "PhoenixBlackNest-${version}-portable.exe"

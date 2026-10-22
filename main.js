@@ -109,6 +109,7 @@ function createWindows() {
         minWidth: 1024,
         minHeight: 700,
         backgroundColor: '#0f172a',
+        icon: path.join(ASSET_DIR, 'ui', 'icon.png'),
         show: false,
         webPreferences: {
             nodeIntegration: true,
@@ -386,6 +387,10 @@ async function runAutomatedE2ETest() {
 
     try {
         await sleep(1500);
+        // La info de GPU llega por IPC del worker; en el arranque en frío puede tardar más de
+        // 1,5 s, así que se espera hasta 8 s en vez de declarar false de inmediato.
+        const gpuDeadline = Date.now() + 8000;
+        while (!gpuInfoCached && Date.now() < gpuDeadline) await sleep(200);
         results.boot = true;
         results.gpuDetected = !!gpuInfoCached;
         console.log(`[E2E] Boot OK. GPU detectada: ${gpuInfoCached ? gpuInfoCached.model : 'N/A'}`);
