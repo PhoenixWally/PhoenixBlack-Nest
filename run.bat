@@ -16,7 +16,6 @@ if not exist "%~dp0node_modules\electron\dist\electron.exe" (
     exit /b 1
 )
 
-set "PYTHONNOUSERSITE=1"
 set "PYTHONUTF8=1"
 if exist "%~dp0runtime\python\python.exe" set "PHOENIXBLACKNEST_PYTHON=%~dp0runtime\python\python.exe"
 

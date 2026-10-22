@@ -60,6 +60,42 @@ const PYTHON_PATH = (() => {
 const EXPORTER_SCRIPT = path.join(ASSET_DIR, 'engine', 'pdf_imposition_exporter.py');
 const CONVERTER_SCRIPT = path.join(ASSET_DIR, 'engine', 'local_cad_converter.py');
 
+// PYTHONNOUSERSITE ocultaba los paquetes instalados en el site de usuario
+// (%APPDATA%\Python\...\site-packages), que es donde pip instala por defecto sin admin:
+// el sintoma era "ModuleNotFoundError: No module named 'fitz'".
+const PY_ENV = (() => {
+    const e = Object.assign({}, process.env);
+    delete e.PYTHONNOUSERSITE;
+    e.PYTHONUTF8 = '1';
+    return e;
+})();
+
+const PY_MODULES = [
+    ['fitz', 'pymupdf'],
+    ['shapely', 'shapely'],
+    ['ezdxf', 'ezdxf'],
+    ['reportlab', 'reportlab'],
+    ['PIL', 'pillow'],
+    ['numpy', 'numpy'],
+    ['cv2', 'opencv-python-headless'],
+    ['pypdf', 'pypdf']
+];
+
+function checkPythonModules(callback) {
+    const names = PY_MODULES.map(m => m[0]);
+    const code = 'import importlib.util as u\n' +
+        'mods=' + JSON.stringify(names) + '\n' +
+        'print(",".join([m for m in mods if u.find_spec(m) is None]))';
+    execFile(PYTHON_PATH, ['-c', code], { env: PY_ENV, timeout: 30000 }, (err, stdout) => {
+        if (err) {
+            console.error('[PYTHON] no ejecutable:', PYTHON_PATH, err.message);
+            return callback({ missing: [], failed: true });
+        }
+        const missing = String(stdout || '').trim().split(',').filter(Boolean);
+        callback({ missing, failed: false });
+    });
+}
+
 function createWindows() {
     try {
         if (powerSaveId === null || !powerSaveBlocker.isStarted(powerSaveId)) {
@@ -282,7 +318,8 @@ function executePythonExport(jobData, outputPath, mode = 'pdf') {
         fs.writeFileSync(tempJson, JSON.stringify(jobData, null, 2), 'utf-8');
 
         execFile(PYTHON_PATH, [EXPORTER_SCRIPT, tempJson, outputPath, mode], {
-            maxBuffer: 100 * 1024 * 1024
+            maxBuffer: 100 * 1024 * 1024,
+            env: PY_ENV
         }, (error, stdout, stderr) => {
             try { fs.unlinkSync(tempJson); } catch (e) {}
 
@@ -309,7 +346,8 @@ function processImportFile(filePath, dpi = 300) {
         const filename = path.basename(filePath);
 
         execFile(PYTHON_PATH, [CONVERTER_SCRIPT, filePath, String(dpi)], {
-            maxBuffer: 50 * 1024 * 1024
+            maxBuffer: 50 * 1024 * 1024,
+            env: PY_ENV
         }, (error, stdout, stderr) => {
             const errMatch = stdout ? stdout.match(/---BEGIN_ERROR---([\s\S]*?)---END_ERROR---/) : null;
 
@@ -403,7 +441,7 @@ async function runAutomatedE2ETest() {
         if (!fs.existsSync(starPath) || !fs.existsSync(jpgPath)) {
             const testScript = path.join(ASSET_DIR, 'test_contour.py');
             await new Promise((res, rej) => {
-                execFile(PYTHON_PATH, [testScript], { cwd: ASSET_DIR }, (err) => err ? rej(err) : res());
+                execFile(PYTHON_PATH, [testScript], { cwd: ASSET_DIR, env: PY_ENV }, (err) => err ? rej(err) : res());
             });
         }
 
@@ -532,7 +570,42 @@ async function runAutomatedE2ETest() {
 }
 
 if (gotSingleInstanceLock) {
-    app.whenReady().then(createWindows);
+    app.whenReady().then(() => {
+        createWindows();
+        // Preflight de dependencias: sin esto el primer sintoma es un ModuleNotFoundError
+        // opaco al importar un archivo.
+        checkPythonModules((res) => {
+            const isE2E = process.argv.includes('--test-e2e');
+            if (res.failed) {
+                console.error('[PYTHON] no se pudo ejecutar:', PYTHON_PATH);
+                if (!isE2E && uiWindow && !uiWindow.isDestroyed()) {
+                    dialog.showMessageBox(uiWindow, {
+                        type: 'error',
+                        title: 'Python no encontrado',
+                        message: 'No se pudo ejecutar el intérprete de Python.',
+                        detail: 'Ruta probada: ' + PYTHON_PATH +
+                            '\n\nInstala Python 3.10+ o define PHOENIXBLACKNEST_PYTHON con la ruta a python.exe.'
+                    });
+                }
+                return;
+            }
+            if (res.missing.length === 0) return;
+            const pipNames = res.missing.map(n => {
+                const hit = PY_MODULES.find(m => m[0] === n);
+                return hit ? hit[1] : n;
+            });
+            const cmd = '"' + PYTHON_PATH + '" -m pip install ' + pipNames.join(' ');
+            console.error('[PYTHON] modulos ausentes:', res.missing.join(', '), '->', cmd);
+            if (!isE2E && uiWindow && !uiWindow.isDestroyed()) {
+                dialog.showMessageBox(uiWindow, {
+                    type: 'warning',
+                    title: 'Faltan dependencias de Python',
+                    message: 'La importación y la exportación no funcionarán: faltan ' + res.missing.join(', ') + '.',
+                    detail: 'Intérprete: ' + PYTHON_PATH + '\n\nEjecuta:\n' + cmd
+                });
+            }
+        });
+    });
 }
 
 app.on('window-all-closed', () => {

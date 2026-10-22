@@ -135,6 +135,7 @@ a missing folder fails with `ENOENT: scandir ...\samples\`, so create it or set 
 | Blank window | Check the console for `[UI] did-fail-load` (a retry is automatic) and `[UNCAUGHT]`. |
 | `[GPU Worker] render-process-gone` | Driver reset or GPU memory pressure; the worker reloads itself after 800 ms. Reduce evaluator size if it repeats. |
 | `ENOENT ... python.exe` | Python not on `PATH`: install it, or set `PHOENIXBLACKNEST_PYTHON` to the interpreter, or drop a runtime in `runtime\python\python.exe`. |
+| `ModuleNotFoundError: No module named 'fitz'` (or `shapely`, `ezdxf`…) while every `pip install` succeeded | The packages live in the per-user site-packages (`%APPDATA%\Python\Python3xx\site-packages`) and the process inherited `PYTHONNOUSERSITE=1`. The app clears that variable for every Python call and runs a dependency preflight at startup that names the missing modules and prints the exact `pip install` command. |
 | `ENOENT ... samples\` when running tests | Set `NEST_SAMPLES` to a folder with `01_*.dxf` … `14_*` files, or create `samples\`. |
 | Ported/packaged build cannot find Python | Packaged builds cannot read `.py` from inside `app.asar`; they are unpacked to `app.asar.unpacked` automatically. Python itself must exist on the machine or in `runtime\python`. |
 
