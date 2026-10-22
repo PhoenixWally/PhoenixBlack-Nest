@@ -63,12 +63,21 @@ const CONVERTER_SCRIPT = path.join(ASSET_DIR, 'engine', 'local_cad_converter.py'
 // PYTHONNOUSERSITE ocultaba los paquetes instalados en el site de usuario
 // (%APPDATA%\Python\...\site-packages), que es donde pip instala por defecto sin admin:
 // el sintoma era "ModuleNotFoundError: No module named 'fitz'".
+// Con el runtime embebido hacemos lo contrario: aislamos el interprete del sistema para que
+// la app no dependa de lo que el usuario tenga instalado.
+const USING_BUNDLED_PYTHON = PYTHON_PATH.toLowerCase().includes(path.join('runtime', 'python').toLowerCase());
 const PY_ENV = (() => {
     const e = Object.assign({}, process.env);
-    delete e.PYTHONNOUSERSITE;
+    if (USING_BUNDLED_PYTHON) {
+        e.PYTHONNOUSERSITE = '1';
+    } else {
+        delete e.PYTHONNOUSERSITE;
+    }
     e.PYTHONUTF8 = '1';
     return e;
 })();
+if (USING_BUNDLED_PYTHON) console.log('[PYTHON] runtime embebido:', PYTHON_PATH);
+else console.log('[PYTHON] interprete del sistema:', PYTHON_PATH);
 
 const PY_MODULES = [
     ['fitz', 'pymupdf'],

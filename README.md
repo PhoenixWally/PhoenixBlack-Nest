@@ -23,7 +23,7 @@ python -m pip install shapely ezdxf reportlab pillow numpy opencv-python-headles
 run.bat
 ```
 
-`run.bat` verifies `node_modules`, exports `PYTHONUTF8`/`PYTHONNOUSERSITE`, uses a bundled
+`run.bat` verifies `node_modules`, exports `PYTHONUTF8`, uses a bundled
 `runtime\python` if present, and prints the Electron exit code if anything fails.
 `npm start` does the same without the checks.
 
@@ -31,13 +31,17 @@ run.bat
 
 ```bat
 npm install
+npm run runtime   # only needed to recreate the embedded Python (see below)
 npm run dist
 ```
 
-Produces `dist\PhoenixBlackNest-2.0.0-portable.exe` (~96 MB, portable, no installer). The
-target machine still needs Python 3.10+ with the packages above — or set
-`PHOENIXBLACKNEST_PYTHON` to a python.exe, or ship a `runtime\python` folder inside the
-build so it is embedded.
+Produces `dist\PhoenixBlackNest-2.0.0-portable.exe` (~194 MB, portable, no installer).
+The release builds embed their own CPython plus every wheel they need: the target machine
+needs **no Python at all**. `npm run runtime` downloads the embeddable CPython and installs
+`pymupdf`, `shapely`, `ezdxf`, `reportlab`, `pillow`, `numpy`, `opencv-python-headless` and
+`pypdf` into `runtime\python\Lib\site-packages`, which `extraResources` copies into the
+build as `resources\runtime\python`. To use a system interpreter instead (development
+only), delete `runtime\python` or set `PHOENIXBLACKNEST_PYTHON` to its `python.exe`.
 
 ## The problem
 
@@ -137,13 +141,14 @@ a missing folder fails with `ENOENT: scandir ...\samples\`, so create it or set 
 | `ENOENT ... python.exe` | Python not on `PATH`: install it, or set `PHOENIXBLACKNEST_PYTHON` to the interpreter, or drop a runtime in `runtime\python\python.exe`. |
 | `ModuleNotFoundError: No module named 'fitz'` (or `shapely`, `ezdxf`…) while every `pip install` succeeded | The packages live in the per-user site-packages (`%APPDATA%\Python\Python3xx\site-packages`) and the process inherited `PYTHONNOUSERSITE=1`. The app clears that variable for every Python call and runs a dependency preflight at startup that names the missing modules and prints the exact `pip install` command. |
 | `ENOENT ... samples\` when running tests | Set `NEST_SAMPLES` to a folder with `01_*.dxf` … `14_*` files, or create `samples\`. |
-| Ported/packaged build cannot find Python | Packaged builds cannot read `.py` from inside `app.asar`; they are unpacked to `app.asar.unpacked` automatically. Python itself must exist on the machine or in `runtime\python`. |
+| Ported/packaged build cannot find Python | Packaged builds cannot read `.py` from inside `app.asar`; they are unpacked to `app.asar.unpacked` automatically. Release builds carry `resources\runtime\python`, so nothing else is needed; a from-source build needs `npm run runtime` or a system Python. |
 
 ## Packaging
 
 `npm run dist` builds the portable `.exe`; `npm run dist:installer` builds an NSIS
 installer instead. The build embeds `main.js`, `ui/`, `worker/` and `engine/` (with the
-Python scripts unpacked outside the asar) and is verified with
+Python scripts unpacked outside the asar), plus `runtime/python` as `extraResources`, and is
+verified with
 `dist\win-unpacked\PhoenixBlackNest.exe --test-e2e`, which writes
 `%TEMP%\phoenixblacknest_e2e_report.json` (`"passed": true` when GPU, both nesting modes
 and DXF/PDF export work).
