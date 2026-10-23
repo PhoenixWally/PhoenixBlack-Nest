@@ -737,6 +737,12 @@ class CoreNestingEngine extends EventEmitter {
 
     async evaluatePlacementGPU(parts, sheetW, sheetH, spacing, bleed, config, forcedAngles = {}) {
         this._currentBatchCount = (parts && parts.length) || 0;
+        // MODO RAPIDO: muchas piezas PEQUENAS (>400 y area media < 6000 mm2). En esos lotes
+        // el coste por pieza domina y una malla de 45 grados con un unico batch GPU basta.
+        let _areaSum = 0;
+        for (const _p of (parts || [])) _areaSum += (_p && _p.area) || 0;
+        this._avgPartArea = this._currentBatchCount > 0 ? (_areaSum / this._currentBatchCount) : 0;
+        this._speedMode = this._currentBatchCount > 400 && this._avgPartArea < 6000;
         const continuousRoll = (typeof config.continuousRoll === 'boolean')
             ? config.continuousRoll
             : ((typeof this.continuousRoll === 'boolean') ? this.continuousRoll : true);
@@ -1069,7 +1075,7 @@ class CoreNestingEngine extends EventEmitter {
         const batch = !!(this.gpuEngine && this.gpuEngine.evalBatchProgram);
         // Lotes grandes (>400 piezas): el coste por pieza domina el tiempo de generaciÃ³n.
         // Se recorta la ventana fina y el nÂº de candidatas refinadas (calidad ~igual).
-        const bigBatch = (this._currentBatchCount || 0) > 400;
+        const bigBatch = !!this._speedMode;
 
         // PLAN ADAPTATIVO: si ya conocemos un Ã¡ngulo bueno para esta pieza (del mejor layout
         // anterior), usar malla dispersa (45Â°) + ancla previa y ventana fina local. Esto reduce
@@ -1080,6 +1086,13 @@ class CoreNestingEngine extends EventEmitter {
             return { coarse: Array.from(new Set([pref, (pref + 90) % 360, (pref + 180) % 360, (pref + 270) % 360])), fine: 4 };
         }
 
+        if (bigBatch && !rescue) {
+            // LOTE GRANDE: 8 angulos (un solo batch GPU) y sin ventana fina; el refinamiento
+            // analitico y el barrido de rejilla se encargan del ajuste fino.
+            const straight8 = [0, 45, 90, 135, 180, 225, 270, 315];
+            if (pref !== null) straight8.push(pref);
+            return { coarse: Array.from(new Set(straight8)), fine: 0 };
+        }
         const step = rescue ? 10 : 15;
         const coarse = [];
         if (batch || rescue) {
@@ -1200,7 +1213,7 @@ class CoreNestingEngine extends EventEmitter {
             // normal sólo se ejecuta si la GPU SÍ vio candidatos (refino analítico fallido) y con
             // 2 ángulos; si la GPU no vio NADA, el barrido profundo se reserva al rescate.
             if (!rescue && (!results || results.length === 0)) return false;
-            const nAng = rescue ? 4 : 2;
+            const nAng = rescue ? 4 : (this._speedMode ? 1 : 2);
             const gridAngles = (results && results.length > 0)
                 ? results.slice(0, nAng).map(r => r.angle)
                 : plan.coarse.slice(0, nAng);

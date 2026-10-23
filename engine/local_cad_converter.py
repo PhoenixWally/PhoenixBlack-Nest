@@ -22,10 +22,57 @@ import shutil
 import tempfile
 import numpy as np
 import cv2
-from PIL import Image
+from PIL import Image, ImageDraw, ImageChops
 
 MAX_DRAW_MM = 8000.0
 PAGE_FRAME_RATIO = 0.90
+SIMPLIFY_TOL_MM = 0.06
+SIMPLIFY_MAX_POINTS = 80
+
+
+def _rdp(points, eps):
+    """Ramer-Douglas-Peucker iterativo (sin recursion)."""
+    n = len(points)
+    if n < 3:
+        return list(points)
+    keep = [False] * n
+    keep[0] = keep[n - 1] = True
+    stack = [(0, n - 1)]
+    while stack:
+        i0, i1 = stack.pop()
+        x0, y0 = points[i0]
+        x1, y1 = points[i1]
+        dx = x1 - x0
+        dy = y1 - y0
+        norm = math.hypot(dx, dy) or 1e-12
+        best = -1.0
+        best_i = -1
+        for k in range(i0 + 1, i1):
+            px, py = points[k]
+            d = abs(dy * (px - x0) - dx * (py - y0)) / norm
+            if d > best:
+                best = d
+                best_i = k
+        if best > eps and best_i > 0:
+            keep[best_i] = True
+            stack.append((i0, best_i))
+            stack.append((best_i, i1))
+    return [p for p, k in zip(points, keep) if k]
+
+
+def _simplify_ring(ring, tol_mm=SIMPLIFY_TOL_MM, max_points=SIMPLIFY_MAX_POINTS):
+    """Reduce vertices conservando la forma: clave para la velocidad del motor."""
+    pts = [(float(p[0]), float(p[1])) for p in ring]
+    if len(pts) < 4:
+        return pts
+    simp = _rdp(pts + [pts[0]], tol_mm)[:-1]
+    if len(simp) < 3:
+        simp = pts
+    if len(simp) > max_points:
+        stride = len(simp) / float(max_points)
+        simp = [simp[int(i * stride)] for i in range(max_points)]
+    return simp
+
 
 
 def emit_output(svg_content, meta_dict):
@@ -293,7 +340,12 @@ def vector_drawings_to_pieces(drawings, scale_mm, page_rect):
         all_contours.extend(_drawing_contours(drawing, scale_mm))
 
     for poly, holes in group_contours(all_contours, min_area=min_area_page):
+        px_mm = [(x * scale_mm, y * scale_mm) for x, y in poly]
+        origin = _bbox(px_mm)
         poly_mm, holes_mm, bounds, area = normalize_piece(poly, holes, scale_mm)
+        poly_mm = _simplify_ring(poly_mm)
+        holes_mm = [_simplify_ring(h) for h in holes_mm]
+        area = round(calculate_polygon_area(poly_mm) - sum(calculate_polygon_area(h) for h in holes_mm), 4)
         if len(poly_mm) < 3 or bounds["width"] <= 0 or bounds["height"] <= 0:
             continue
         if area < min_area_mm2:
@@ -302,7 +354,8 @@ def vector_drawings_to_pieces(drawings, scale_mm, page_rect):
             "polygon": poly_mm,
             "holes": holes_mm,
             "bounds": bounds,
-            "area": area
+            "area": area,
+            "origin_mm": [round(origin[0], 4), round(origin[1], 4)]
         })
     return pieces
 
@@ -763,6 +816,36 @@ def process_svg(file_path):
     return svg, meta
 
 
+def _attach_pdf_artwork(page, pieces, abs_path, dpi, max_px=128):
+    """Miniatura del arte real de cada pieza (data URL) para previsualizacion.
+
+    NO fija 'cropped_image_path': la exportacion usa la pagina PDF nativa (vectorial),
+    que conserva la calidad de impresion y el alfa original.
+    """
+    if not pieces:
+        return
+    px_per_mm = float(dpi) / 25.4
+    pix = page.get_pixmap(dpi=int(round(dpi)), alpha=True)
+    page_img = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
+    for piece in pieces:
+        origin = piece.get("origin_mm") or [0.0, 0.0]
+        w_mm = piece["bounds"]["width"]
+        h_mm = piece["bounds"]["height"]
+        x0 = max(0, int(math.floor(origin[0] * px_per_mm)))
+        y0 = max(0, int(math.floor(origin[1] * px_per_mm)))
+        x1 = min(page_img.width, int(math.ceil((origin[0] + w_mm) * px_per_mm)))
+        y1 = min(page_img.height, int(math.ceil((origin[1] + h_mm) * px_per_mm)))
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            continue
+        crop = page_img.crop((x0, y0, x1, y1))
+        if max(crop.size) > max_px:
+            ratio = max_px / float(max(crop.size))
+            crop = crop.resize((max(1, int(crop.width * ratio)), max(1, int(crop.height * ratio))),
+                               Image.LANCZOS)
+        buf = io.BytesIO()
+        crop.save(buf, format="PNG")
+        piece["image_data_url"] = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
 def process_pdf(file_path, default_dpi=300.0):
     import fitz
 
@@ -787,6 +870,11 @@ def process_pdf(file_path, default_dpi=300.0):
                 pieces = raster_meta.get("pieces", [])
             except Exception as exc:
                 print("[PDF] raster fallback failed:", exc, file=sys.stderr)
+        if pieces and not pieces[0].get("cropped_image_path"):
+            try:
+                _attach_pdf_artwork(page, pieces, abs_path, float(default_dpi) if default_dpi else 300.0)
+            except Exception as exc:
+                print("[PDF] artwork crop failed:", exc, file=sys.stderr)
     finally:
         doc.close()
 
