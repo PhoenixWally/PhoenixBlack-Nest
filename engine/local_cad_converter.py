@@ -243,6 +243,22 @@ def _drawing_contours(drawing, scale_mm):
     return contours
 
 
+def _is_simple_rect(drawing):
+    """Solo rectangulos trazados (item re, o 4 lineas con 2 x / 2 y)."""
+    items = drawing.get("items") or []
+    if not items:
+        return False
+    if all(it[0] == "re" for it in items):
+        return True
+    if len(items) == 4 and all(it[0] == "l" for it in items):
+        pts = []
+        for it in items:
+            pts.append((round(it[1].x, 3), round(it[1].y, 3)))
+            pts.append((round(it[2].x, 3), round(it[2].y, 3)))
+        return len(set(p[0] for p in pts)) == 2 and len(set(p[1] for p in pts)) == 2
+    return False
+
+
 def _is_page_frame(drawing, page_rect):
     """Detecta el marco/borde de pÃ¡gina (sÃ³lo trazo) o fondo a pÃ¡gina completa."""
     r = drawing.get("rect")
@@ -251,6 +267,8 @@ def _is_page_frame(drawing, page_rect):
     if page_rect.width <= 0 or page_rect.height <= 0:
         return False
     if drawing.get("fill") is not None:
+        return False
+    if not _is_simple_rect(drawing):
         return False
     cover_w = r.width / page_rect.width
     cover_h = r.height / page_rect.height
@@ -745,7 +763,7 @@ def process_svg(file_path):
     return svg, meta
 
 
-def process_pdf(file_path):
+def process_pdf(file_path, default_dpi=300.0):
     import fitz
 
     abs_path = os.path.abspath(file_path)
@@ -756,6 +774,19 @@ def process_pdf(file_path):
         pieces = vector_drawings_to_pieces(page.get_drawings(), scale, page.rect)
         page_w_mm = page.rect.width * scale
         page_h_mm = page.rect.height * scale
+        if not pieces:
+            # PDF sin vectores utiles: silueta exportada como trazo a sangre o solo bitmap.
+            # Rasterizamos la pagina y trazamos la mascara real en vez de devolver la caja.
+            try:
+                dpi = float(default_dpi) if default_dpi else 300.0
+                pix = page.get_pixmap(dpi=int(round(dpi)), alpha=True)
+                img = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
+                _, raster_meta = _raster_pieces(img, dpi, dpi, abs_path,
+                                                os.path.basename(file_path), "pdf+raster",
+                                                open_kernel=0)
+                pieces = raster_meta.get("pieces", [])
+            except Exception as exc:
+                print("[PDF] raster fallback failed:", exc, file=sys.stderr)
     finally:
         doc.close()
 
@@ -978,225 +1009,234 @@ def process_dwg(file_path):
 # RÃSTER
 # =============================================================================
 
+def _image_dpi(img_info, default_dpi):
+    dpi_val = img_info.get('dpi', None)
+    if dpi_val:
+        if isinstance(dpi_val, (tuple, list)):
+            dpi_x = float(dpi_val[0]) if dpi_val[0] and dpi_val[0] > 10 else default_dpi
+            dpi_y = float(dpi_val[1]) if dpi_val[1] and dpi_val[1] > 10 else default_dpi
+        else:
+            dpi_x = dpi_y = float(dpi_val) if float(dpi_val) > 10 else default_dpi
+        return float(dpi_x), float(dpi_y)
+    return float(default_dpi), float(default_dpi)
+
+
 def process_raster_image(file_path, default_dpi=300.0):
     abs_path = os.path.abspath(file_path)
     if not os.path.exists(abs_path):
         raise FileNotFoundError(f"Archivo no encontrado: {abs_path}")
-
     with Image.open(abs_path) as img:
-        img_info = img.info or {}
-        dpi_val = img_info.get('dpi', None)
-        if dpi_val:
-            if isinstance(dpi_val, (tuple, list)):
-                dpi_x = float(dpi_val[0]) if dpi_val[0] and dpi_val[0] > 10 else default_dpi
-                dpi_y = float(dpi_val[1]) if dpi_val[1] and dpi_val[1] > 10 else default_dpi
-            else:
-                dpi_x = dpi_y = float(dpi_val) if float(dpi_val) > 10 else default_dpi
-        else:
-            dpi_x = dpi_y = default_dpi
+        dpi_x, dpi_y = _image_dpi(img.info or {}, default_dpi)
+        return _raster_pieces(img, dpi_x, dpi_y, abs_path, os.path.basename(file_path), "raster")
 
-        px_w, px_h = img.size
-        scale_x_mm = 25.4 / dpi_x
-        scale_y_mm = 25.4 / dpi_y
 
-        # 1. DetecciÃ³n Inteligente de Fondo (Alfa vs Color Perimetral)
-        has_alpha = False
-        rgba = None
-        if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img_info):
-            rgba = img.convert('RGBA')
-            alpha = np.array(rgba.getchannel('A'))
-            if np.min(alpha) < 235:
-                has_alpha = True
-                raw_mask = (alpha > 20).astype(np.uint8) * 255
+def _raster_pieces(img, dpi_x, dpi_y, abs_path, display_name, fmt, open_kernel=3):
+    img_info = img.info or {}
+    px_w, px_h = img.size
+    scale_x_mm = 25.4 / dpi_x
+    scale_y_mm = 25.4 / dpi_y
 
-        if not has_alpha:
-            rgb_img = img.convert('RGB')
-            rgb = np.array(rgb_img)
-            h_img, w_img = rgb.shape[:2]
+    # 1. DetecciÃ³n Inteligente de Fondo (Alfa vs Color Perimetral)
+    has_alpha = False
+    rgba = None
+    if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img_info):
+        rgba = img.convert('RGBA')
+        alpha = np.array(rgba.getchannel('A'))
+        if np.min(alpha) < 235:
+            has_alpha = True
+            raw_mask = (alpha > 20).astype(np.uint8) * 255
 
-            top_row = rgb[0, :]
-            bottom_row = rgb[h_img - 1, :]
-            left_col = rgb[:, 0]
-            right_col = rgb[:, w_img - 1]
-            border = np.concatenate([top_row, bottom_row, left_col, right_col], axis=0)
+    if not has_alpha:
+        rgb_img = img.convert('RGB')
+        rgb = np.array(rgb_img)
+        h_img, w_img = rgb.shape[:2]
 
-            bg_color = np.median(border, axis=0)
-            diff = np.linalg.norm(rgb.astype(float) - bg_color.astype(float), axis=2)
-            border_diff = np.linalg.norm(border.astype(float) - bg_color.astype(float), axis=1)
+        top_row = rgb[0, :]
+        bottom_row = rgb[h_img - 1, :]
+        left_col = rgb[:, 0]
+        right_col = rgb[:, w_img - 1]
+        border = np.concatenate([top_row, bottom_row, left_col, right_col], axis=0)
 
-            tol = max(18.0, float(np.percentile(border_diff, 95) + 8.0))
-            raw_mask = (diff > tol).astype(np.uint8) * 255
+        bg_color = np.median(border, axis=0)
+        diff = np.linalg.norm(rgb.astype(float) - bg_color.astype(float), axis=2)
+        border_diff = np.linalg.norm(border.astype(float) - bg_color.astype(float), axis=1)
 
-            rgba = img.convert('RGBA')
+        tol = max(18.0, float(np.percentile(border_diff, 95) + 8.0))
+        raw_mask = (diff > tol).astype(np.uint8) * 255
 
-        # 2. Cierre MorfolÃ³gico y EliminaciÃ³n de Ruido
-        k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        raw_mask = cv2.morphologyEx(raw_mask, cv2.MORPH_CLOSE, k_close)
+        rgba = img.convert('RGBA')
 
-        k_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    # 2. Cierre MorfolÃ³gico y EliminaciÃ³n de Ruido
+    k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    raw_mask = cv2.morphologyEx(raw_mask, cv2.MORPH_CLOSE, k_close)
+
+    if open_kernel:
+        k_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (open_kernel, open_kernel))
         raw_mask = cv2.morphologyEx(raw_mask, cv2.MORPH_OPEN, k_open)
 
-        # 3. Suavizado Anti-Staircase
-        blurred = cv2.GaussianBlur(raw_mask, (5, 5), sigmaX=1.2, sigmaY=1.2)
-        _, smooth_mask = cv2.threshold(blurred, 127, 255, cv2.THRESH_BINARY)
+    # 3. Suavizado Anti-Staircase
+    blurred = cv2.GaussianBlur(raw_mask, (5, 5), sigmaX=1.2, sigmaY=1.2)
+    _, smooth_mask = cv2.threshold(blurred, 127, 255, cv2.THRESH_BINARY)
 
-        # 4. Trazado de JerarquÃ­a de Contornos (Islas y Agujeros)
-        contours, hierarchy = cv2.findContours(smooth_mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+    # 4. Trazado de JerarquÃ­a de Contornos (Islas y Agujeros)
+    contours, hierarchy = cv2.findContours(smooth_mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
 
-        if not contours or hierarchy is None:
-            w_mm = px_w * scale_x_mm
-            h_mm = px_h * scale_y_mm
-            fallback_poly = [[0, 0], [w_mm, 0], [w_mm, h_mm], [0, h_mm]]
-            meta = {
+    if not contours or hierarchy is None:
+        w_mm = px_w * scale_x_mm
+        h_mm = px_h * scale_y_mm
+        fallback_poly = [[0, 0], [w_mm, 0], [w_mm, h_mm], [0, h_mm]]
+        meta = {
+            "source_path": abs_path,
+            "format": fmt,
+            "dpi": [dpi_x, dpi_y],
+            "pieces": [{
+                "filename": display_name,
                 "source_path": abs_path,
-                "format": "raster",
-                "dpi": [dpi_x, dpi_y],
-                "pieces": [{
-                    "filename": os.path.basename(file_path),
-                    "source_path": abs_path,
-                    "polygon": fallback_poly,
-                    "holes": [],
-                    "bounds": {"x": 0, "y": 0, "width": w_mm, "height": h_mm},
-                    "area": w_mm * h_mm
-                }]
-            }
-            svg = f'<svg viewBox="0 0 {w_mm} {h_mm}"><rect width="{w_mm}" height="{h_mm}"/></svg>'
-            return svg, meta
+                "polygon": fallback_poly,
+                "holes": [],
+                "bounds": {"x": 0, "y": 0, "width": w_mm, "height": h_mm},
+                "area": w_mm * h_mm
+            }]
+        }
+        svg = f'<svg viewBox="0 0 {w_mm} {h_mm}"><rect width="{w_mm}" height="{h_mm}"/></svg>'
+        return svg, meta
 
-        cache_dir = os.path.join(os.path.dirname(os.path.dirname(abs_path)), '.cache')
-        os.makedirs(cache_dir, exist_ok=True)
-        file_hash = hashlib.md5(abs_path.encode('utf-8')).hexdigest()[:8]
+    cache_dir = os.path.join(os.path.dirname(os.path.dirname(abs_path)), '.cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    file_hash = hashlib.md5(abs_path.encode('utf-8')).hexdigest()[:8]
 
-        min_area_px = max(40.0, (1.5 / scale_x_mm) * (1.5 / scale_y_mm))
+    min_area_px = max(40.0, (1.5 / scale_x_mm) * (1.5 / scale_y_mm))
 
-        pieces = []
-        svg_paths = []
-        global_max_w = 0.0
-        global_max_h = 0.0
+    pieces = []
+    svg_paths = []
+    global_max_w = 0.0
+    global_max_h = 0.0
 
-        for i, c in enumerate(contours):
-            if hierarchy[0][i][3] != -1:
-                continue
+    for i, c in enumerate(contours):
+        if hierarchy[0][i][3] != -1:
+            continue
 
-            area_px = cv2.contourArea(c)
-            if area_px < min_area_px:
-                continue
+        area_px = cv2.contourArea(c)
+        if area_px < min_area_px:
+            continue
 
-            peri = cv2.arcLength(c, True)
-            eps = max(0.4, 0.002 * peri)
-            approx_outer = cv2.approxPolyDP(c, eps, True)
-            if len(approx_outer) < 3:
-                continue
+        peri = cv2.arcLength(c, True)
+        eps = max(0.4, 0.002 * peri)
+        approx_outer = cv2.approxPolyDP(c, eps, True)
+        if len(approx_outer) < 3:
+            continue
 
-            child_idx = hierarchy[0][i][2]
-            approx_holes = []
-            while child_idx != -1:
-                h_cnt = contours[child_idx]
-                h_area_px = cv2.contourArea(h_cnt)
-                if h_area_px >= max(25.0, (1.0 / scale_x_mm) * (1.0 / scale_y_mm)):
-                    h_peri = cv2.arcLength(h_cnt, True)
-                    h_eps = max(0.4, 0.002 * h_peri)
-                    h_app = cv2.approxPolyDP(h_cnt, h_eps, True)
-                    if len(h_app) >= 3:
-                        approx_holes.append(h_app)
-                child_idx = hierarchy[0][child_idx][0]
+        child_idx = hierarchy[0][i][2]
+        approx_holes = []
+        while child_idx != -1:
+            h_cnt = contours[child_idx]
+            h_area_px = cv2.contourArea(h_cnt)
+            if h_area_px >= max(25.0, (1.0 / scale_x_mm) * (1.0 / scale_y_mm)):
+                h_peri = cv2.arcLength(h_cnt, True)
+                h_eps = max(0.4, 0.002 * h_peri)
+                h_app = cv2.approxPolyDP(h_cnt, h_eps, True)
+                if len(h_app) >= 3:
+                    approx_holes.append(h_app)
+            child_idx = hierarchy[0][child_idx][0]
 
-            px_xs = [float(pt[0][0]) for pt in approx_outer]
-            px_ys = [float(pt[0][1]) for pt in approx_outer]
-            bx0 = max(0, int(math.floor(min(px_xs))))
-            by0 = max(0, int(math.floor(min(px_ys))))
-            bx1 = min(px_w, int(math.ceil(max(px_xs))))
-            by1 = min(px_h, int(math.ceil(max(px_ys))))
-            bw_px = max(1, bx1 - bx0)
-            bh_px = max(1, by1 - by0)
+        px_xs = [float(pt[0][0]) for pt in approx_outer]
+        px_ys = [float(pt[0][1]) for pt in approx_outer]
+        bx0 = max(0, int(math.floor(min(px_xs))))
+        by0 = max(0, int(math.floor(min(px_ys))))
+        bx1 = min(px_w, int(math.ceil(max(px_xs))))
+        by1 = min(px_h, int(math.ceil(max(px_ys))))
+        bw_px = max(1, bx1 - bx0)
+        bh_px = max(1, by1 - by0)
 
-            outer_mm = [
+        outer_mm = [
+            [round((pt[0][0] - bx0) * scale_x_mm, 4),
+             round((pt[0][1] - by0) * scale_y_mm, 4)]
+            for pt in approx_outer
+        ]
+
+        holes_mm = []
+        for h_app in approx_holes:
+            h_mm = [
                 [round((pt[0][0] - bx0) * scale_x_mm, 4),
                  round((pt[0][1] - by0) * scale_y_mm, 4)]
-                for pt in approx_outer
+                for pt in h_app
             ]
+            holes_mm.append(h_mm)
 
-            holes_mm = []
-            for h_app in approx_holes:
-                h_mm = [
-                    [round((pt[0][0] - bx0) * scale_x_mm, 4),
-                     round((pt[0][1] - by0) * scale_y_mm, 4)]
-                    for pt in h_app
-                ]
-                holes_mm.append(h_mm)
+        piece_w_mm = round(bw_px * scale_x_mm, 4)
+        piece_h_mm = round(bh_px * scale_y_mm, 4)
+        global_max_w = max(global_max_w, piece_w_mm)
+        global_max_h = max(global_max_h, piece_h_mm)
 
-            piece_w_mm = round(bw_px * scale_x_mm, 4)
-            piece_h_mm = round(bh_px * scale_y_mm, 4)
-            global_max_w = max(global_max_w, piece_w_mm)
-            global_max_h = max(global_max_h, piece_h_mm)
+        net_area_mm = calculate_polygon_area(outer_mm) - sum(calculate_polygon_area(h) for h in holes_mm)
 
-            net_area_mm = calculate_polygon_area(outer_mm) - sum(calculate_polygon_area(h) for h in holes_mm)
+        # 5. Recorte Transparente de Textura
+        crop_rgba = rgba.crop((bx0, by0, bx1, by1))
+        crop_mask = smooth_mask[by0:by1, bx0:bx1]
 
-            # 5. Recorte Transparente de Textura
-            crop_rgba = rgba.crop((bx0, by0, bx1, by1))
-            crop_mask = smooth_mask[by0:by1, bx0:bx1]
+        crop_np = np.array(crop_rgba)
+        if crop_mask.shape[:2] == crop_np.shape[:2]:
+            crop_np[:, :, 3] = np.minimum(crop_np[:, :, 3], crop_mask)
+        clean_crop_img = Image.fromarray(crop_np)
 
-            crop_np = np.array(crop_rgba)
-            if crop_mask.shape[:2] == crop_np.shape[:2]:
-                crop_np[:, :, 3] = np.minimum(crop_np[:, :, 3], crop_mask)
-            clean_crop_img = Image.fromarray(crop_np)
+        piece_idx = len(pieces)
+        crop_filename = f"crop_{file_hash}_{piece_idx}.png"
+        crop_path = os.path.join(cache_dir, crop_filename)
+        clean_crop_img.save(crop_path, format="PNG")
 
-            piece_idx = len(pieces)
-            crop_filename = f"crop_{file_hash}_{piece_idx}.png"
-            crop_path = os.path.join(cache_dir, crop_filename)
-            clean_crop_img.save(crop_path, format="PNG")
+        buf = io.BytesIO()
+        clean_crop_img.save(buf, format="PNG")
+        data_url = f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('ascii')}"
 
-            buf = io.BytesIO()
-            clean_crop_img.save(buf, format="PNG")
-            data_url = f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('ascii')}"
+        d_parts = [f"M {outer_mm[0][0]:.3f} {outer_mm[0][1]:.3f}"]
+        for p in outer_mm[1:]:
+            d_parts.append(f"L {p[0]:.3f} {p[1]:.3f}")
+        d_parts.append("Z")
 
-            d_parts = [f"M {outer_mm[0][0]:.3f} {outer_mm[0][1]:.3f}"]
-            for p in outer_mm[1:]:
+        for h in holes_mm:
+            d_parts.append(f"M {h[0][0]:.3f} {h[0][1]:.3f}")
+            for p in h[1:]:
                 d_parts.append(f"L {p[0]:.3f} {p[1]:.3f}")
             d_parts.append("Z")
 
-            for h in holes_mm:
-                d_parts.append(f"M {h[0][0]:.3f} {h[0][1]:.3f}")
-                for p in h[1:]:
-                    d_parts.append(f"L {p[0]:.3f} {p[1]:.3f}")
-                d_parts.append("Z")
+        svg_paths.append(" ".join(d_parts))
 
-            svg_paths.append(" ".join(d_parts))
-
-            pieces.append({
-                "filename": f"{os.path.basename(file_path)}" if piece_idx == 0 else f"{os.path.basename(file_path)}_#{piece_idx+1}",
-                "source_path": abs_path,
-                "cropped_image_path": crop_path,
-                "image_data_url": data_url,
-                "polygon": outer_mm,
-                "holes": holes_mm,
-                "bounds": {"x": 0, "y": 0, "width": piece_w_mm, "height": piece_h_mm},
-                "area": round(net_area_mm, 4)
-            })
-
-        if not pieces:
-            w_mm = px_w * scale_x_mm
-            h_mm = px_h * scale_y_mm
-            return f'<svg viewBox="0 0 {w_mm} {h_mm}"><rect width="{w_mm}" height="{h_mm}"/></svg>', {
-                "source_path": abs_path,
-                "format": "raster",
-                "dpi": [dpi_x, dpi_y],
-                "pieces": []
-            }
-
-        svg_content = f'<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {global_max_w:.3f} {global_max_h:.3f}" width="{global_max_w:.3f}mm" height="{global_max_h:.3f}mm">\n'
-        for sp in svg_paths:
-            svg_content += f'  <path d="{sp}" fill="#24C7ED" fill-opacity="0.8" stroke="#000" stroke-width="0.25" fill-rule="evenodd"/>\n'
-        svg_content += '</svg>'
-
-        meta = {
+        pieces.append({
+            "filename": f"{display_name}" if piece_idx == 0 else f"{display_name}_#{piece_idx+1}",
             "source_path": abs_path,
-            "format": "raster",
-            "dpi": [round(dpi_x, 2), round(dpi_y, 2)],
-            "pieces": pieces
+            "cropped_image_path": crop_path,
+            "image_data_url": data_url,
+            "polygon": outer_mm,
+            "holes": holes_mm,
+            "bounds": {"x": 0, "y": 0, "width": piece_w_mm, "height": piece_h_mm},
+            "area": round(net_area_mm, 4)
+        })
+
+    if not pieces:
+        w_mm = px_w * scale_x_mm
+        h_mm = px_h * scale_y_mm
+        return f'<svg viewBox="0 0 {w_mm} {h_mm}"><rect width="{w_mm}" height="{h_mm}"/></svg>', {
+            "source_path": abs_path,
+            "format": fmt,
+            "dpi": [dpi_x, dpi_y],
+            "pieces": []
         }
 
-        return svg_content, meta
+    svg_content = f'<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {global_max_w:.3f} {global_max_h:.3f}" width="{global_max_w:.3f}mm" height="{global_max_h:.3f}mm">\n'
+    for sp in svg_paths:
+        svg_content += f'  <path d="{sp}" fill="#24C7ED" fill-opacity="0.8" stroke="#000" stroke-width="0.25" fill-rule="evenodd"/>\n'
+    svg_content += '</svg>'
+
+    meta = {
+        "source_path": abs_path,
+        "format": fmt,
+        "dpi": [round(dpi_x, 2), round(dpi_y, 2)],
+        "pieces": pieces
+    }
+
+    return svg_content, meta
+
+
 
 
 def process_file(file_path, default_dpi=300.0):
@@ -1208,7 +1248,7 @@ def process_file(file_path, default_dpi=300.0):
     elif ext == '.svg':
         return process_svg(file_path)
     elif ext in ('.pdf', '.pdfx'):
-        return process_pdf(file_path)
+        return process_pdf(file_path, default_dpi)
     elif ext in ('.tif', '.tiff', '.png', '.jpg', '.jpeg', '.bmp', '.webp'):
         return process_raster_image(file_path, default_dpi)
     else:
